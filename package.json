@@ -1,0 +1,18 @@
+{
+  "name": "ai-job-copilot",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build:shared": "npm run build --workspace @ai-job-copilot/shared",
+    "dev:web": "npm run build:shared && npm run dev --workspace @ai-job-copilot/web",
+    "dev:api": "npm run build:shared && npm run dev --workspace @ai-job-copilot/api",
+    "build": "npm run build --workspaces",
+    "typecheck": "npm run typecheck --workspaces",
+    "prisma:generate": "npm run prisma:generate --workspace @ai-job-copilot/api",
+    "prisma:migrate": "npm run prisma:migrate --workspace @ai-job-copilot/api"
+  }
+}

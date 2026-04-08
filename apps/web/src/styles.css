@@ -1,0 +1,170 @@
+:root {
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  color: #102033;
+  background:
+    radial-gradient(circle at top, rgba(255, 218, 185, 0.8), transparent 30%),
+    linear-gradient(180deg, #f8fbff 0%, #eef4f8 100%);
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+button,
+textarea,
+input {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.9rem 1.4rem;
+  background: #0b6bcb;
+  color: white;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+textarea,
+.uploadBox {
+  width: 100%;
+  border: 1px solid #c5d4e4;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.85);
+  padding: 1rem;
+}
+
+textarea {
+  resize: vertical;
+}
+
+.uploadBox input {
+  display: none;
+}
+
+.shell {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2rem 1rem 4rem;
+}
+
+.hero {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.75rem;
+  color: #7b5d31;
+}
+
+.lede,
+.muted {
+  color: #4f6173;
+}
+
+.nav {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.nav a {
+  text-decoration: none;
+  color: #234;
+  padding: 0.65rem 1rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.nav a.active {
+  background: #102033;
+  color: white;
+}
+
+.content,
+.dashboard {
+  display: grid;
+  gap: 1rem;
+}
+
+.panel,
+.scoreCard {
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(179, 197, 215, 0.8);
+  border-radius: 24px;
+  padding: 1.5rem;
+  box-shadow: 0 18px 40px rgba(16, 32, 51, 0.08);
+}
+
+.scoreCard h2 {
+  font-size: clamp(3rem, 10vw, 5rem);
+  margin: 0;
+}
+
+.stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.chip {
+  padding: 0.45rem 0.8rem;
+  border-radius: 999px;
+  font-size: 0.95rem;
+}
+
+.chip.ok {
+  background: #dff3e5;
+  color: #1e6a3b;
+}
+
+.chip.warn {
+  background: #fde7d3;
+  color: #9b4b00;
+}
+
+.error {
+  color: #b42318;
+}
+
+pre {
+  white-space: pre-wrap;
+  font-family: inherit;
+  margin: 0;
+}
+
+@media (min-width: 800px) {
+  .hero {
+    grid-template-columns: 1.6fr 1fr;
+    align-items: end;
+  }
+
+  .dashboard {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .scoreCard {
+    grid-column: 1 / -1;
+  }
+}
