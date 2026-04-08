@@ -24,8 +24,8 @@ model JobAnalysis {
   suggestions     String
   tailoredSummary String
   coverLetter     String
+  applicationTips String   @default("")
   createdAt       DateTime @default(now())
   resumeId        Int?
   resume          Resume?  @relation(fields: [resumeId], references: [id])
 }
-

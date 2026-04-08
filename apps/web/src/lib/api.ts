@@ -1,4 +1,4 @@
-import type { JobAnalyzeResponse, ResumeUploadResponse } from "@ai-job-copilot/shared";
+import type { ApiErrorPayload, JobAnalyzeResponse, ResumeUploadResponse } from "@ai-job-copilot/shared";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
@@ -27,12 +27,21 @@ export async function analyzeJob(jobText: string, resumeId?: number) {
 }
 
 async function handleResponse<T>(response: Response) {
-  const payload = await response.json();
+  const payload = await parseJson(response) as Partial<ApiErrorPayload> | T;
 
   if (!response.ok) {
-    throw new Error(payload.message ?? "Request failed.");
+    const apiError = payload as Partial<ApiErrorPayload>;
+    const message = apiError.error?.details?.[0] ?? apiError.error?.message ?? "Request failed.";
+    throw new Error(message);
   }
 
   return payload as T;
 }
 
+async function parseJson(response: Response) {
+  try {
+    return await response.json();
+  } catch {
+    return {};
+  }
+}

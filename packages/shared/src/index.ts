@@ -5,13 +5,23 @@ export interface ResumeDto {
   createdAt: string;
 }
 
+export interface SkillBuckets {
+  technical: string[];
+  soft: string[];
+}
+
 export interface AnalysisResult {
   score: number;
-  matchedSkills: string[];
-  missingSkills: string[];
+  matchedTechnicalSkills: string[];
+  missingTechnicalSkills: string[];
+  matchedSoftSkills: string[];
+  missingSoftSkills: string[];
   suggestions: string;
   tailoredSummary: string;
   coverLetter: string;
+  applicationTips: string;
+  aiAssistanceStatus: "available" | "error";
+  aiAssistanceMessage?: string;
 }
 
 export interface JobAnalysisDto extends AnalysisResult {
@@ -35,5 +45,9 @@ export interface JobAnalyzeResponse {
 }
 
 export interface ApiErrorPayload {
-  message: string;
+  error: {
+    code: string;
+    message: string;
+    details?: string[];
+  };
 }

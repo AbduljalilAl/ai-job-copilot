@@ -32,6 +32,11 @@ button {
   cursor: pointer;
 }
 
+.ghostButton {
+  background: rgba(16, 32, 51, 0.08);
+  color: #102033;
+}
+
 button:disabled {
   opacity: 0.65;
   cursor: wait;
@@ -117,9 +122,23 @@ textarea {
   margin: 0;
 }
 
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
 .stack {
   display: grid;
   gap: 1rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .chips {
@@ -144,8 +163,31 @@ textarea {
   color: #9b4b00;
 }
 
+.chip.neutral {
+  background: #e9f0f6;
+  color: #41596f;
+}
+
 .error {
   color: #b42318;
+}
+
+.inlineNotice,
+.emptyState {
+  border: 1px dashed #c5d4e4;
+  border-radius: 18px;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.emptyState.compact {
+  margin-bottom: 1rem;
+}
+
+.aiNotice {
+  border-style: solid;
+  border-color: rgba(180, 122, 0, 0.35);
+  background: rgba(255, 248, 235, 0.9);
 }
 
 pre {

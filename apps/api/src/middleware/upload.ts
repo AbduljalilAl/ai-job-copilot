@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import multer from "multer";
+import { AppError } from "../lib/errors.js";
 
 const uploadDirectory = path.resolve(process.cwd(), "uploads");
 
@@ -27,7 +28,11 @@ export const upload = multer({
     ];
 
     if (!allowed.includes(file.mimetype)) {
-      callback(new Error("Only PDF and DOCX files are supported."));
+      callback(new AppError({
+        code: "INVALID_FILE_TYPE",
+        message: "Only PDF and DOCX resumes are supported.",
+        statusCode: 415
+      }));
       return;
     }
 
