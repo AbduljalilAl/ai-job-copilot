@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { AnalysisStatus, Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../lib/errors.js";
 import { AIService } from "./aiService.js";
@@ -12,7 +12,15 @@ export class JobAnalysisService {
     private readonly aiService = new AIService()
   ) {}
 
-  async analyze(jobText: string, resumeId?: number) {
+  async analyze(
+    jobText: string,
+    resumeId?: number,
+    metadata?: {
+      companyName?: string;
+      jobTitle?: string;
+      sourceUrl?: string;
+    }
+  ) {
     const resume = resumeId
       ? await this.resumeService.getResumeById(resumeId)
       : await this.resumeService.getLatestResume();
@@ -53,6 +61,9 @@ export class JobAnalysisService {
     const analysis = await prisma.jobAnalysis.create({
       data: {
         jobText,
+        companyName: metadata?.companyName,
+        jobTitle: metadata?.jobTitle ?? this.extractTarget(jobText),
+        sourceUrl: metadata?.sourceUrl,
         score: match.score,
         matchedSkills,
         missingSkills,
@@ -60,6 +71,7 @@ export class JobAnalysisService {
         tailoredSummary,
         coverLetter,
         applicationTips,
+        savedAt: new Date(),
         resumeId: resume.id
       }
     });
@@ -69,6 +81,49 @@ export class JobAnalysisService {
       aiAssistanceStatus: aiOutput.aiAssistanceStatus,
       aiAssistanceMessage: aiOutput.aiAssistanceMessage
     };
+  }
+
+  async getHistory(limit = 10) {
+    return prisma.jobAnalysis.findMany({
+      orderBy: {
+        createdAt: "desc"
+      },
+      take: limit
+    });
+  }
+
+  async getById(id: number) {
+    const analysis = await prisma.jobAnalysis.findUnique({
+      where: { id }
+    });
+
+    if (!analysis) {
+      throw new AppError({
+        code: "ANALYSIS_NOT_FOUND",
+        message: "The requested analysis could not be found.",
+        statusCode: 404
+      });
+    }
+
+    return analysis;
+  }
+
+  async updateStatus(id: number, status: AnalysisStatus) {
+    await this.getById(id);
+
+    return prisma.jobAnalysis.update({
+      where: { id },
+      data: { status }
+    });
+  }
+
+  async updateNotes(id: number, notes: string) {
+    await this.getById(id);
+
+    return prisma.jobAnalysis.update({
+      where: { id },
+      data: { notes }
+    });
   }
 
   private buildTailoredSummary(

@@ -2,10 +2,12 @@ import cors from "cors";
 import express from "express";
 import { MulterError } from "multer";
 import { ZodError } from "zod";
+import { analysisRouter } from "./routes/analysisRoutes.js";
 import { env } from "./config/env.js";
 import { AppError } from "./lib/errors.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { jobRouter } from "./routes/jobRoutes.js";
+import { jobsRouter } from "./routes/jobsRoutes.js";
 import { resumeRouter } from "./routes/resumeRoutes.js";
 
 export const app = express();
@@ -23,6 +25,8 @@ app.get("/health", (_request, response) => {
 
 app.use("/resume", resumeRouter);
 app.use("/job", jobRouter);
+app.use("/jobs", jobsRouter);
+app.use("/analysis", analysisRouter);
 
 app.use((error: unknown, _request: express.Request, response: express.Response, next: express.NextFunction) => {
   if (error instanceof SyntaxError) {

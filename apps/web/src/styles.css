@@ -19,20 +19,27 @@ body {
 
 button,
 textarea,
-input {
+input,
+select {
   font: inherit;
 }
 
-button {
+button,
+.buttonLink {
   border: 0;
   border-radius: 999px;
   padding: 0.9rem 1.4rem;
   background: #0b6bcb;
   color: white;
   cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.ghostButton {
+button.ghostButton,
+.buttonLink.ghostButton {
   background: rgba(16, 32, 51, 0.08);
   color: #102033;
 }
@@ -43,7 +50,8 @@ button:disabled {
 }
 
 textarea,
-.uploadBox {
+.uploadBox,
+input {
   width: 100%;
   border: 1px solid #c5d4e4;
   border-radius: 18px;
@@ -139,6 +147,34 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
+  align-items: center;
+}
+
+.historyList {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.historyItem {
+  text-align: left;
+  background: rgba(255, 255, 255, 0.9);
+  color: #102033;
+  border: 1px solid rgba(179, 197, 215, 0.8);
+  border-radius: 18px;
+  padding: 1rem 1.1rem;
+}
+
+.historyItem p {
+  margin: 0.6rem 0 0;
+  color: #304455;
+}
+
+.historyMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  color: #4f6173;
 }
 
 .chips {
@@ -172,6 +208,10 @@ textarea {
   color: #b42318;
 }
 
+.success {
+  color: #1e6a3b;
+}
+
 .inlineNotice,
 .emptyState {
   border: 1px dashed #c5d4e4;
@@ -190,6 +230,75 @@ textarea {
   background: rgba(255, 248, 235, 0.9);
 }
 
+.trackingPanel,
+.fieldGroup {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.searchForm {
+  display: grid;
+  gap: 1rem;
+}
+
+.checkboxField {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+.checkboxField input {
+  width: auto;
+  margin: 0;
+}
+
+.inlineField {
+  margin-bottom: 1rem;
+  max-width: 280px;
+}
+
+.fieldGroup span {
+  font-weight: 600;
+  color: #304455;
+}
+
+select {
+  width: 100%;
+  border: 1px solid #c5d4e4;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.85);
+  padding: 0.8rem 0.9rem;
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  background: #e9f0f6;
+  color: #41596f;
+  text-transform: capitalize;
+  font-size: 0.9rem;
+}
+
+.jobGrid {
+  display: grid;
+  gap: 1rem;
+}
+
+.jobCard h3 {
+  margin: 0.2rem 0;
+}
+
+.scorePill {
+  min-width: 84px;
+  padding: 0.65rem 0.9rem;
+  border-radius: 999px;
+  background: #102033;
+  color: white;
+  text-align: center;
+  font-weight: 700;
+}
+
 pre {
   white-space: pre-wrap;
   font-family: inherit;
@@ -203,6 +312,15 @@ pre {
   }
 
   .dashboard {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .searchForm {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: end;
+  }
+
+  .jobGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

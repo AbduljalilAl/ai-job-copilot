@@ -10,6 +10,7 @@ interface AppStateValue {
   setResume: (resume?: ResumeDto) => void;
   setAnalysis: (analysis?: JobAnalysisDto) => void;
   setJobText: (jobText: string) => void;
+  openAnalysis: (analysis: JobAnalysisDto) => void;
   clearAll: () => void;
 }
 
@@ -32,8 +33,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     clearPersistedState();
   }
 
+  function openAnalysis(nextAnalysis: JobAnalysisDto) {
+    setAnalysis(nextAnalysis);
+    setJobText(nextAnalysis.jobText);
+  }
+
   return (
-    <AppStateContext.Provider value={{ resume, analysis, jobText, setResume, setAnalysis, setJobText, clearAll }}>
+    <AppStateContext.Provider value={{ resume, analysis, jobText, setResume, setAnalysis, setJobText, openAnalysis, clearAll }}>
       {children}
     </AppStateContext.Provider>
   );

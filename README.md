@@ -27,6 +27,8 @@ packages/
   - tailored summary
   - short cover letter draft
 - Typed frontend state with localStorage restore for the current resume, latest job text, and latest analysis
+- Analysis history for reviewing recent saved results
+- Job discovery with seeded development opportunities and resume-based fit scoring
 - OpenAI-powered grounded application assistance for:
   - short cover letter
   - practical application tips
@@ -61,8 +63,22 @@ packages/
 6. `AIService` uses the OpenAI API to generate a grounded short cover letter and short application tips from:
    - the uploaded resume text
    - the pasted job or training description
-7. The AI layer does not rewrite or replace the resume.
-8. If OpenAI is unavailable, the backend keeps the analysis usable and returns a safe AI error state for the frontend.
+7. Every analysis is saved and can be retrieved later from `GET /analysis/history`.
+8. The AI layer does not rewrite or replace the resume.
+9. If OpenAI is unavailable, the backend keeps the analysis usable and returns a safe AI error state for the frontend.
+
+## How job discovery works
+
+1. The frontend sends job search preferences to `POST /jobs/search`.
+2. A provider layer returns seeded development opportunities. This keeps the current MVP safe and deterministic while leaving room for future providers.
+3. Each opportunity is scored against the uploaded resume using the same `MatchingService`, with additional weighting for:
+   - required technical skills
+   - optional technical skills
+   - soft skills
+   - role relevance
+4. Scored opportunities are persisted in `JobOpportunity`.
+5. The frontend can list stored opportunities from `GET /jobs` and open full details from `GET /jobs/:id`.
+6. Running a full analysis from a job details page reuses `POST /job/analyze`, which saves the opportunity into the existing history and tracking flow.
 
 ## Error handling
 
@@ -101,6 +117,11 @@ Prisma models live in [apps/api/prisma/schema.prisma](./apps/api/prisma/schema.p
 - `JobAnalysis`
   - `id`
   - `jobText`
+  - `companyName`
+  - `jobTitle`
+  - `sourceUrl`
+  - `status`
+  - `notes`
   - `score`
   - `matchedSkills`
   - `missingSkills`
@@ -109,7 +130,28 @@ Prisma models live in [apps/api/prisma/schema.prisma](./apps/api/prisma/schema.p
   - `coverLetter`
   - `applicationTips`
   - `createdAt`
+  - `savedAt`
+  - `updatedAt`
   - `resumeId`
+- `JobOpportunity`
+  - `id`
+  - `title`
+  - `companyName`
+  - `location`
+  - `source`
+  - `sourceUrl`
+  - `applyUrl`
+  - `description`
+  - `employmentType`
+  - `roleType`
+  - `remoteType`
+  - `matchScore`
+  - `matchedSkills`
+  - `missingSkills`
+  - `matchReason`
+  - `matchDetails`
+  - `createdAt`
+  - `updatedAt`
 
 ## Setup
 
@@ -161,7 +203,7 @@ npm run prisma:generate
 npm run prisma:migrate -- --name init
 ```
 
-Prisma reads `DATABASE_URL` from your local `.env`, so Neon credentials stay out of source control. Because `applicationTips` was added to `JobAnalysis`, you need to run this migration after pulling the latest code.
+Prisma reads `DATABASE_URL` from your local `.env`, so Neon credentials stay out of source control. The latest code adds `JobOpportunity` for job discovery and tracking, so run a new migration after pulling the latest code.
 
 ## Start the apps
 
@@ -213,8 +255,34 @@ npm run dev:web
    - no invented projects or achievements appear
 9. Temporarily remove `OPENAI_API_KEY` and repeat to confirm the AI sections show an error state while the rest of the analysis still works.
 
+## Testing job discovery and scoring
+
+1. Run the latest Prisma migration and generate the client:
+
+```bash
+npm run prisma:migrate -- --name add-job-opportunities
+npm run prisma:generate
+```
+
+2. Start the API and web app.
+3. Upload a resume first.
+4. Open the Jobs page and search with keywords, location, remote-only preference, and role type.
+5. Confirm the results list shows:
+   - company name
+   - job title
+   - location
+   - match score
+   - short match reason
+   - apply link when available
+6. Open a job details page and confirm it shows:
+   - full description
+   - matched required, optional, and soft skills
+   - missing required, optional, and soft skills
+   - apply link or a clear fallback message
+7. Run full analysis from the details page and confirm the result appears in the existing Results and History flows.
+
 ## Notes
 
-- This upgrade adds one schema change: `applicationTips` on `JobAnalysis`.
+- Recent schema changes include richer `JobAnalysis` tracking fields and the new `JobOpportunity` model.
 - This upgrade adds `OPENAI_API_KEY` and optional `OPENAI_MODEL`.
 - `AIService` still remains isolated behind the existing service boundary.

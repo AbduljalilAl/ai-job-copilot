@@ -7,6 +7,19 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum AnalysisStatus {
+  saved
+  applied
+  interview
+  rejected
+}
+
+enum JobRoleType {
+  internship
+  summer_training
+  entry_level
+}
+
 model Resume {
   id        Int           @id @default(autoincrement())
   filename  String
@@ -18,6 +31,11 @@ model Resume {
 model JobAnalysis {
   id              Int      @id @default(autoincrement())
   jobText         String
+  companyName     String?
+  jobTitle        String?
+  sourceUrl       String?
+  status          AnalysisStatus @default(saved)
+  notes           String?  @default("")
   score           Int
   matchedSkills   Json
   missingSkills   Json
@@ -26,6 +44,35 @@ model JobAnalysis {
   coverLetter     String
   applicationTips String   @default("")
   createdAt       DateTime @default(now())
+  savedAt         DateTime @default(now())
+  updatedAt       DateTime @updatedAt
   resumeId        Int?
   resume          Resume?  @relation(fields: [resumeId], references: [id])
+
+  @@index([createdAt])
+  @@index([status])
+}
+
+model JobOpportunity {
+  id             Int         @id @default(autoincrement())
+  title          String
+  companyName    String
+  location       String
+  source         String
+  sourceUrl      String
+  applyUrl       String?
+  description    String
+  employmentType String?
+  roleType       JobRoleType?
+  remoteType     String?
+  matchScore     Int
+  matchedSkills  Json
+  missingSkills  Json
+  matchReason    String
+  matchDetails   Json
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@unique([source, sourceUrl])
+  @@index([matchScore])
 }
