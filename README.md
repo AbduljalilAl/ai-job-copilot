@@ -122,15 +122,32 @@ npm install
 2. Copy `.env.example` to `.env` and update the values locally:
 
 ```env
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/ai_job_copilot?schema=public"
-PORT=4000
-CLIENT_ORIGIN="http://localhost:5173"
-VITE_API_BASE_URL="http://localhost:4000"
-OPENAI_API_KEY="your_openai_api_key"
+DATABASE_URL="your_database_url_here"
+OPENAI_API_KEY="your_api_key_here"
 OPENAI_MODEL="gpt-5-mini"
 ```
 
-Do not commit `.env` or real secrets. The repository ignores `.env` and `.env.*`, while keeping `.env.example` committed as a safe template.
+Use your Neon connection string for `DATABASE_URL`. Do not commit `.env` or real secrets. The repository ignores `.env` and `.env.*`, while keeping `.env.example` committed as a safe template.
+
+For this monorepo, the primary local env file location is the repo root:
+
+```text
+ai-job-copilot/.env
+```
+
+If you run API-only commands directly from `apps/api`, you can also copy:
+
+```text
+apps/api/.env.example
+```
+
+to:
+
+```text
+apps/api/.env
+```
+
+using the same placeholder values replaced with your real local secrets.
 
 3. Generate Prisma client:
 
@@ -144,7 +161,7 @@ npm run prisma:generate
 npm run prisma:migrate -- --name init
 ```
 
-Because `applicationTips` was added to `JobAnalysis`, you need to run this migration after pulling the latest code.
+Prisma reads `DATABASE_URL` from your local `.env`, so Neon credentials stay out of source control. Because `applicationTips` was added to `JobAnalysis`, you need to run this migration after pulling the latest code.
 
 ## Start the apps
 
@@ -175,9 +192,11 @@ If OpenAI fails or is not configured, the app still returns the non-AI analysis 
 
 ## Testing cover letter generation
 
-1. Add a valid `OPENAI_API_KEY` to `.env`.
-2. Optionally set `OPENAI_MODEL` in `.env`. If omitted, the API uses `gpt-5-mini`.
-3. Run:
+1. Create `.env` locally from `.env.example`.
+2. Set `DATABASE_URL` to your Neon PostgreSQL connection string.
+3. Add a valid `OPENAI_API_KEY` to `.env`.
+4. Optionally set `OPENAI_MODEL` in `.env`. If omitted, the API uses `gpt-5-mini`.
+5. Run:
 
 ```bash
 npm run prisma:migrate -- --name add-application-tips
@@ -185,14 +204,14 @@ npm run dev:api
 npm run dev:web
 ```
 
-4. Upload a real PDF or DOCX resume.
-5. Paste an internship or summer training description.
-6. Submit the analysis and confirm:
+6. Upload a real PDF or DOCX resume.
+7. Paste an internship or summer training description.
+8. Submit the analysis and confirm:
    - a cover letter appears
    - application tips appear
    - the content stays grounded in the uploaded resume
    - no invented projects or achievements appear
-7. Temporarily remove `OPENAI_API_KEY` and repeat to confirm the AI sections show an error state while the rest of the analysis still works.
+9. Temporarily remove `OPENAI_API_KEY` and repeat to confirm the AI sections show an error state while the rest of the analysis still works.
 
 ## Notes
 
