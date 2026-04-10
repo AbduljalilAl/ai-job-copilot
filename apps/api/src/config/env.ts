@@ -20,7 +20,9 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(4000),
   CLIENT_ORIGIN: z.string().url().default("http://localhost:5173"),
   OPENAI_API_KEY: z.string().min(1).optional(),
-  OPENAI_MODEL: z.string().min(1, "OPENAI_MODEL cannot be empty when provided.").default("gpt-5-mini")
+  OPENAI_MODEL: z.string().min(1, "OPENAI_MODEL cannot be empty when provided.").default("gpt-5-mini"),
+  GREENHOUSE_BOARD_TOKENS: z.string().optional(),
+  JOB_DISCOVERY_PROVIDER: z.enum(["auto", "greenhouse", "mock"]).default("auto")
 });
 
 export const env = envSchema.parse(process.env);

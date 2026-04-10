@@ -2,9 +2,9 @@ import type { Prisma } from "@prisma/client";
 import type { JobSearchRequest } from "@ai-job-copilot/shared";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../lib/errors.js";
-import { uniqueSorted } from "../lib/textNormalization.js";
+import { normalizeAnalysisText, uniqueSorted } from "../lib/textNormalization.js";
 import { MatchingService } from "./matchingService.js";
-import { MockJobProvider, type JobSearchPreferences, type RawJobOpportunity } from "./jobProviderService.js";
+import { createJobProvider, type JobSearchPreferences, type RawJobOpportunity } from "./jobProviderService.js";
 import { ResumeService } from "./resumeService.js";
 
 type PrismaRoleType = "internship" | "summer_training" | "entry_level";
@@ -29,11 +29,60 @@ function toPrismaRoleType(value?: JobSearchRequest["roleType"]): PrismaRoleType 
   return value;
 }
 
+function buildPreferenceKeywords(preferences: JobSearchPreferences) {
+  return [preferences.keywords, preferences.focusArea, preferences.preferenceText]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join(" ");
+}
+
+function matchesLocation(job: RawJobOpportunity, preferences: JobSearchPreferences) {
+  const normalizedLocation = normalizeAnalysisText(preferences.location ?? "");
+
+  if (!normalizedLocation) {
+    return true;
+  }
+
+  const haystack = normalizeAnalysisText(`${job.location} ${job.remoteType ?? ""} ${job.description}`);
+  return haystack.includes(normalizedLocation);
+}
+
+function matchesRemote(job: RawJobOpportunity, preferences: JobSearchPreferences) {
+  if (!preferences.remoteOnly) {
+    return true;
+  }
+
+  const haystack = normalizeAnalysisText(`${job.location} ${job.remoteType ?? ""} ${job.description}`);
+  return haystack.includes("remote");
+}
+
+function matchesRoleType(job: RawJobOpportunity, preferences: JobSearchPreferences) {
+  if (!job.roleType) {
+    return true;
+  }
+
+  return job.roleType === preferences.roleType;
+}
+
+function matchesKeywords(job: RawJobOpportunity, preferences: JobSearchPreferences) {
+  const keywordTokens = uniqueSorted(
+    normalizeAnalysisText(buildPreferenceKeywords(preferences))
+      .split(" ")
+      .filter((token) => token.length > 2)
+  );
+
+  if (keywordTokens.length === 0) {
+    return true;
+  }
+
+  const haystack = normalizeAnalysisText(`${job.title} ${job.companyName} ${job.location} ${job.description}`);
+  return keywordTokens.some((token) => haystack.includes(token));
+}
+
 export class JobOpportunityService {
   constructor(
     private readonly resumeService = new ResumeService(),
     private readonly matchingService = new MatchingService(),
-    private readonly jobProvider = new MockJobProvider()
+    private readonly jobProvider = createJobProvider()
   ) {}
 
   async search(preferences: JobSearchPreferences) {
@@ -48,11 +97,17 @@ export class JobOpportunityService {
     }
 
     const discoveredJobs = await this.jobProvider.search(preferences);
-    const scoredJobs = await Promise.all(
-      discoveredJobs.map((job) => this.upsertScoredOpportunity(job, resume.content, preferences))
+    const filteredJobs = discoveredJobs.filter((job) =>
+      matchesKeywords(job, preferences)
+      && matchesLocation(job, preferences)
+      && matchesRemote(job, preferences)
+      && matchesRoleType(job, preferences)
+    );
+    const rankedJobs = await Promise.all(
+      filteredJobs.map((job) => this.upsertScoredOpportunity(job, resume.content, preferences))
     );
 
-    return scoredJobs.sort(
+    return rankedJobs.sort(
       (left: { matchScore: number; updatedAt: Date }, right: { matchScore: number; updatedAt: Date }) =>
         right.matchScore - left.matchScore || right.updatedAt.getTime() - left.updatedAt.getTime()
     );
@@ -86,7 +141,7 @@ export class JobOpportunityService {
 
   private async upsertScoredOpportunity(job: RawJobOpportunity, resumeText: string, preferences: JobSearchPreferences) {
     const match = this.matchingService.analyze(resumeText, job.description, {
-      keywords: preferences.keywords,
+      keywords: buildPreferenceKeywords(preferences),
       roleType: preferences.roleType,
       title: job.title
     });

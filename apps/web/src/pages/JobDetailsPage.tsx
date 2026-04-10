@@ -93,7 +93,8 @@ export function JobDetailsPage() {
           <div>
             <p className="eyebrow">{job.companyName}</p>
             <h2>{job.matchScore}%</h2>
-            <p className="muted">{job.title} • {job.location}</p>
+            <p className="muted">{job.title} - {job.location}</p>
+            <p className="muted">Source: {job.source}</p>
           </div>
           <div className="actions">
             <Link className="buttonLink ghostButton" to="/jobs">Back to jobs</Link>

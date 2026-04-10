@@ -28,7 +28,7 @@ packages/
   - short cover letter draft
 - Typed frontend state with localStorage restore for the current resume, latest job text, and latest analysis
 - Analysis history for reviewing recent saved results
-- Job discovery with seeded development opportunities and resume-based fit scoring
+- Job discovery with Greenhouse public boards when configured, plus safe mock fallback for local development
 - OpenAI-powered grounded application assistance for:
   - short cover letter
   - practical application tips
@@ -70,15 +70,16 @@ packages/
 ## How job discovery works
 
 1. The frontend sends job search preferences to `POST /jobs/search`.
-2. A provider layer returns seeded development opportunities. This keeps the current MVP safe and deterministic while leaving room for future providers.
-3. Each opportunity is scored against the uploaded resume using the same `MatchingService`, with additional weighting for:
+2. A provider layer fetches many jobs from Greenhouse public job boards when `GREENHOUSE_BOARD_TOKENS` is configured. If not configured, the app falls back to mock jobs for local development.
+3. The backend normalizes job data, filters obvious mismatches using the search preferences, and then scores every remaining opportunity against the latest uploaded resume.
+4. Each opportunity is scored using the same `MatchingService`, with additional weighting for:
    - required technical skills
    - optional technical skills
    - soft skills
    - role relevance
-4. Scored opportunities are persisted in `JobOpportunity`.
-5. The frontend can list stored opportunities from `GET /jobs` and open full details from `GET /jobs/:id`.
-6. Running a full analysis from a job details page reuses `POST /job/analyze`, which saves the opportunity into the existing history and tracking flow.
+5. Scored opportunities are ranked best-first and persisted in `JobOpportunity`.
+6. The frontend can list stored opportunities from `GET /jobs` and open full details from `GET /jobs/:id`.
+7. Running a full analysis from a job details page reuses `POST /job/analyze`, which saves the opportunity into the existing history and tracking flow.
 
 ## Error handling
 
@@ -167,9 +168,19 @@ npm install
 DATABASE_URL="your_database_url_here"
 OPENAI_API_KEY="your_api_key_here"
 OPENAI_MODEL="gpt-5-mini"
+JOB_DISCOVERY_PROVIDER="auto"
+GREENHOUSE_BOARD_TOKENS="your_greenhouse_board_token_here"
 ```
 
 Use your Neon connection string for `DATABASE_URL`. Do not commit `.env` or real secrets. The repository ignores `.env` and `.env.*`, while keeping `.env.example` committed as a safe template.
+
+`JOB_DISCOVERY_PROVIDER` supports:
+
+- `auto`: use Greenhouse when tokens exist, otherwise fall back to mock jobs
+- `greenhouse`: require Greenhouse board tokens
+- `mock`: force local mock jobs
+
+`GREENHOUSE_BOARD_TOKENS` accepts a comma-separated list of public Greenhouse board tokens.
 
 For this monorepo, the primary local env file location is the repo root:
 
@@ -257,29 +268,31 @@ npm run dev:web
 
 ## Testing job discovery and scoring
 
-1. Run the latest Prisma migration and generate the client:
+1. Add one or more Greenhouse board tokens to `.env` if you want real jobs. For local development without tokens, leave `JOB_DISCOVERY_PROVIDER=auto`.
+2. Run the latest Prisma migration and generate the client:
 
 ```bash
 npm run prisma:migrate -- --name add-job-opportunities
 npm run prisma:generate
 ```
 
-2. Start the API and web app.
-3. Upload a resume first.
-4. Open the Jobs page and search with keywords, location, remote-only preference, and role type.
-5. Confirm the results list shows:
+3. Start the API and web app.
+4. Upload a resume first.
+5. Open the Jobs page and search with keywords, location, remote-only preference, role type, and optional focus hint.
+6. Confirm the results list shows:
    - company name
    - job title
    - location
    - match score
    - short match reason
    - apply link when available
-6. Open a job details page and confirm it shows:
+   - Greenhouse source when configured, otherwise mock source
+7. Open a job details page and confirm it shows:
    - full description
    - matched required, optional, and soft skills
    - missing required, optional, and soft skills
    - apply link or a clear fallback message
-7. Run full analysis from the details page and confirm the result appears in the existing Results and History flows.
+8. Run full analysis from the details page and confirm the result appears in the existing Results and History flows.
 
 ## Notes
 

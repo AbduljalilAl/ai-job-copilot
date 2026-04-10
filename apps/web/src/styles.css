@@ -251,6 +251,10 @@ textarea {
   margin: 0;
 }
 
+.searchFormWide {
+  grid-column: 1 / -1;
+}
+
 .inlineField {
   margin-bottom: 1rem;
   max-width: 280px;

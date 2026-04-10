@@ -8,7 +8,9 @@ const initialSearch: JobSearchRequest = {
   keywords: "",
   location: "",
   remoteOnly: false,
-  roleType: "internship"
+  roleType: "internship",
+  focusArea: "",
+  preferenceText: ""
 };
 
 export function JobSearchPage() {
@@ -75,7 +77,7 @@ export function JobSearchPage() {
     <section className="stack">
       <article className="panel">
         <h2>Job discovery</h2>
-        <p className="muted">Search seeded development opportunities, score them against your uploaded resume, and open the strongest matches.</p>
+        <p className="muted">Search Greenhouse jobs when board tokens are configured. If not, the app falls back to local development jobs.</p>
 
         <form className="searchForm" onSubmit={handleSearch}>
           <label className="fieldGroup">
@@ -96,6 +98,15 @@ export function JobSearchPage() {
               disabled={isSearching}
             />
           </label>
+          <label className="fieldGroup">
+            <span>Focus area</span>
+            <input
+              value={form.focusArea ?? ""}
+              onChange={(event) => setForm((current) => ({ ...current, focusArea: event.target.value }))}
+              placeholder="software, embedded, IoT, backend"
+              disabled={isSearching}
+            />
+          </label>
           <label className="fieldGroup checkboxField">
             <input
               type="checkbox"
@@ -112,6 +123,16 @@ export function JobSearchPage() {
               <option value="summer training">Summer training</option>
               <option value="entry-level">Entry-level</option>
             </select>
+          </label>
+          <label className="fieldGroup searchFormWide">
+            <span>Preference hint</span>
+            <textarea
+              rows={3}
+              value={form.preferenceText ?? ""}
+              onChange={(event) => setForm((current) => ({ ...current, preferenceText: event.target.value }))}
+              placeholder="Remote-friendly internships in Riyadh focused on Node.js, embedded systems, or IoT."
+              disabled={isSearching}
+            />
           </label>
           <div className="actions">
             <button type="submit" disabled={isSearching || form.keywords.trim().length < 2}>
@@ -133,10 +154,11 @@ export function JobSearchPage() {
 
       {!isLoading && jobs.length > 0 ? (
         <div className="jobGrid">
-          {jobs.map((job) => (
+          {jobs.map((job, index) => (
             <article key={job.id} className="panel jobCard">
               <div className="cardHeader">
                 <div>
+                  <p className="muted">Rank #{index + 1} • {job.source}</p>
                   <p className="eyebrow">{job.companyName}</p>
                   <h3>{job.title}</h3>
                   <p className="muted">{job.location}</p>

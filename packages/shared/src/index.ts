@@ -71,6 +71,8 @@ export interface JobSearchRequest {
   location?: string;
   remoteOnly?: boolean;
   roleType: RoleType;
+  focusArea?: string;
+  preferenceText?: string;
 }
 
 export interface JobMatchDetails {
