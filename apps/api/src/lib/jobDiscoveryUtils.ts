@@ -1,34 +1,21 @@
 import { normalizeAnalysisText } from "./textNormalization.js";
 import type { WorkMode } from "@ai-job-copilot/shared";
 
-const saudiPrioritySignals = [
-  "saudi arabia",
-  "riyadh",
-  "jeddah",
-  "dammam",
-  "khobar",
-  "dhahran",
-  "makkah",
-  "mecca",
-  "medina",
-  "madinah"
-];
-
 const countryAliasMap: Record<string, string[]> = {
-  "saudi arabia": ["saudi arabia", "ksa", "riyadh", "jeddah", "dammam", "khobar", "dhahran", "makkah", "mecca", "medina", "madinah"],
-  "united arab emirates": ["united arab emirates", "uae", "dubai", "abu dhabi", "sharjah"],
-  "qatar": ["qatar", "doha"],
-  "kuwait": ["kuwait", "kuwait city"],
-  "bahrain": ["bahrain", "manama"],
-  "oman": ["oman", "muscat"],
-  "egypt": ["egypt", "cairo", "alexandria"],
-  "jordan": ["jordan", "amman"],
-  "united kingdom": ["united kingdom", "uk", "england", "london", "manchester"],
-  "germany": ["germany", "berlin", "munich", "hamburg"],
-  "netherlands": ["netherlands", "amsterdam", "rotterdam", "eindhoven"],
-  "ireland": ["ireland", "dublin", "cork"],
-  "canada": ["canada", "toronto", "vancouver", "montreal"],
-  "united states": ["united states", "usa", "us", "new york", "san francisco", "seattle", "austin", "boston"],
+  "saudi arabia": ["saudi arabia", "ksa"],
+  "united arab emirates": ["united arab emirates", "uae"],
+  "qatar": ["qatar"],
+  "kuwait": ["kuwait"],
+  "bahrain": ["bahrain"],
+  "oman": ["oman"],
+  "egypt": ["egypt"],
+  "jordan": ["jordan"],
+  "united kingdom": ["united kingdom", "uk"],
+  "germany": ["germany"],
+  "netherlands": ["netherlands"],
+  "ireland": ["ireland"],
+  "canada": ["canada"],
+  "united states": ["united states", "usa", "us"],
   "remote global": ["remote", "global", "worldwide", "anywhere"]
 };
 
@@ -63,13 +50,13 @@ function containsNormalizedAlias(normalizedText: string, alias: string) {
 }
 
 export function getSaudiPriorityScore(location: string, remoteType?: string) {
-  const normalized = normalizeAnalysisText(`${location} ${remoteType ?? ""}`);
+  const inferredCountry = inferCountryFromText(`${location} ${remoteType ?? ""}`);
 
-  if (saudiPrioritySignals.some((signal) => normalized.includes(signal))) {
+  if (normalizeCountryKey(inferredCountry) === "saudi arabia") {
     return 2;
   }
 
-  if (normalized.includes("remote")) {
+  if (inferWorkModeFromText(`${location} ${remoteType ?? ""}`) === "remote") {
     return 1;
   }
 
@@ -170,19 +157,11 @@ export function matchesCountrySelection(country: string | undefined, text: strin
 
   const normalizedInferredCountry = normalizeCountryKey(inferredCountry);
 
-  if (normalizedInferredCountry === "remote global") {
-    return true;
-  }
-
   if (normalizedInferredCountry && aliases.includes(normalizedInferredCountry)) {
     return true;
   }
 
   const normalizedText = normalizeAnalysisText(text);
-  if (countryAliasMap["remote global"].some((alias) => containsNormalizedAlias(normalizedText, alias))) {
-    return true;
-  }
-
   return aliases.some((alias) => containsNormalizedAlias(normalizedText, alias));
 }
 

@@ -2,12 +2,12 @@ import type { Prisma } from "@prisma/client";
 import type { JobSearchRequest, RoleType, WorkMode } from "@ai-job-copilot/shared";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../lib/errors.js";
-import { getCountryPriority, getDiscoveryLocationSignal, getSaudiPriorityScore, inferCountryFromText, inferWorkModeFromText, matchesCountrySelection } from "../lib/jobDiscoveryUtils.js";
+import { getCountryPriority, getDiscoveryLocationSignal, getSaudiPriorityScore, inferWorkModeFromText, matchesCountrySelection } from "../lib/jobDiscoveryUtils.js";
 import { normalizeAnalysisText, uniqueSorted } from "../lib/textNormalization.js";
 import { MatchingService } from "./matchingService.js";
 import { AIService } from "./aiService.js";
 import { createJobProvider, type JobSearchPreferences, type RawJobOpportunity } from "./jobProviderService.js";
-import { LocationCountryMappingService } from "./locationCountryMappingService.js";
+import { GeoLocationService } from "./geoLocationService.js";
 import { ResumeService } from "./resumeService.js";
 
 type PrismaRoleType = "internship" | "summer_training" | "entry_level";
@@ -155,6 +155,12 @@ function buildPreferenceKeywords(preferences: JobSearchPreferences) {
     .join(" ");
 }
 
+function buildFilterKeywords(preferences: JobSearchPreferences) {
+  return [preferences.keywords, preferences.focusArea]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join(" ");
+}
+
 function matchesLocation(job: RawJobOpportunity, preferences: JobSearchPreferences) {
   const normalizedLocation = normalizeAnalysisText(preferences.location ?? "");
 
@@ -167,10 +173,10 @@ function matchesLocation(job: RawJobOpportunity, preferences: JobSearchPreferenc
 }
 
 function matchesCountry(job: EnrichedJobOpportunity, preferences: JobSearchPreferences) {
-  return matchesCountrySelection(preferences.country, `${job.location} ${job.description}`, job.inferredCountry);
+  return matchesCountrySelection(preferences.country, `${job.location} ${job.remoteType ?? ""}`, job.inferredCountry);
 }
 
-function getLocationPriority(job: Pick<RawJobOpportunity, "location" | "remoteType">, preferredLocation?: string) {
+function getLocationPriority(job: Pick<RawJobOpportunity, "location" | "remoteType">, preferredLocation?: string, inferredCountry?: string) {
   const { preferredLocation: normalizedLocation, defaultSaudiBias } = getDiscoveryLocationSignal(preferredLocation);
   const haystack = normalizeAnalysisText(`${job.location} ${job.remoteType ?? ""}`);
 
@@ -179,7 +185,7 @@ function getLocationPriority(job: Pick<RawJobOpportunity, "location" | "remoteTy
   }
 
   if (defaultSaudiBias) {
-    return getSaudiPriorityScore(job.location, job.remoteType);
+    return getSaudiPriorityScore(inferredCountry ?? job.location, job.remoteType);
   }
 
   return 0;
@@ -217,7 +223,7 @@ function matchesRoleType(job: RawJobOpportunity, preferences: JobSearchPreferenc
 
 function matchesKeywords(job: RawJobOpportunity, preferences: JobSearchPreferences) {
   const keywordTokens = uniqueSorted(
-    normalizeAnalysisText(buildPreferenceKeywords(preferences))
+    normalizeAnalysisText(buildFilterKeywords(preferences))
       .split(" ")
       .filter((token) => token.length > 2 && !genericKeywordTokens.has(token))
   );
@@ -250,7 +256,7 @@ export class JobOpportunityService {
     private readonly matchingService = new MatchingService(),
     private readonly aiService = new AIService(),
     private readonly jobProvider = createJobProvider(),
-    private readonly locationCountryMappingService = new LocationCountryMappingService()
+    private readonly geoLocationService = new GeoLocationService()
   ) {}
 
   async discover(request: JobSearchRequest) {
@@ -266,7 +272,7 @@ export class JobOpportunityService {
 
     const { resolved, source } = resolveSearchPreferences(request, resume.content);
     const discovered = await this.jobProvider.search(resolved);
-    const jobsWithCountry = await this.enrichCountryInformation(discovered.jobs);
+    const jobsWithCountry = await this.enrichCountryInformation(discovered.jobs, resolved.country);
     const filteredJobs = jobsWithCountry.filter((job) =>
       matchesKeywords(job, resolved)
       && matchesLocation(job, resolved)
@@ -379,7 +385,7 @@ export class JobOpportunityService {
     resumeText: string
   ) {
     const sortedByBase = [...scoredJobs].sort((left, right) => right.score - left.score);
-    const topJobs = new Set(sortedByBase.slice(0, Math.min(8, sortedByBase.length)).map((item) => item.job.sourceUrl));
+    const topJobs = new Set(sortedByBase.slice(0, Math.min(3, sortedByBase.length)).map((item) => item.job.sourceUrl));
 
     return Promise.all(
       scoredJobs.map(async (item) => {
@@ -481,11 +487,11 @@ export class JobOpportunityService {
     const leftLocationPriority = getLocationPriority({
       location: left.location ?? "",
       remoteType: normalizeWorkMode(left.remoteType)
-    }, preferredLocation);
+    }, preferredLocation, this.extractInferredCountry(left.matchDetails));
     const rightLocationPriority = getLocationPriority({
       location: right.location ?? "",
       remoteType: normalizeWorkMode(right.remoteType)
-    }, preferredLocation);
+    }, preferredLocation, this.extractInferredCountry(right.matchDetails));
     const leftCountryPriority = getCountryPriority(preferredCountry, left.location ?? "", normalizeWorkMode(left.remoteType), this.extractInferredCountry(left.matchDetails));
     const rightCountryPriority = getCountryPriority(preferredCountry, right.location ?? "", normalizeWorkMode(right.remoteType), this.extractInferredCountry(right.matchDetails));
 
@@ -495,55 +501,18 @@ export class JobOpportunityService {
       || right.updatedAt.getTime() - left.updatedAt.getTime();
   }
 
-  private async enrichCountryInformation(jobs: RawJobOpportunity[]): Promise<EnrichedJobOpportunity[]> {
-    const deterministicByLocation = new Map<string, string>();
-
-    for (const job of jobs) {
-      const location = job.location.trim();
-      const deterministicCountry = inferCountryFromText(location);
-
-      if (location && deterministicCountry) {
-        deterministicByLocation.set(location, deterministicCountry);
-      }
-    }
-
-    await this.locationCountryMappingService.saveMappings(
-      Array.from(deterministicByLocation.entries()).map(([location, country]) => ({
-        location,
-        country,
-        source: "deterministic" as const
-      }))
-    );
-
-    const unresolvedLocations = Array.from(
-      new Set(
-        jobs
-          .map((job) => job.location.trim())
-          .filter((location) => location.length > 0 && !deterministicByLocation.has(location))
-      )
-    );
-    const databaseMappings = await this.locationCountryMappingService.findCountries(unresolvedLocations);
-    const aiTargetLocations = unresolvedLocations.filter((location) => !databaseMappings[location]);
-    const aiInferred = aiTargetLocations.length > 0
-      ? await this.aiService.inferCountriesForLocations(aiTargetLocations)
-      : { inferredCountries: {}, aiAssistanceStatus: "available" as const };
-
-    await this.locationCountryMappingService.saveMappings(
-      Object.entries(aiInferred.inferredCountries).map(([location, country]) => ({
-        location,
-        country,
-        source: "openai" as const
-      }))
+  private async enrichCountryInformation(jobs: RawJobOpportunity[], preferredCountry?: string): Promise<EnrichedJobOpportunity[]> {
+    const resolvedCountries = await this.geoLocationService.resolveCountriesForLocations(
+      jobs.map((job) => job.location),
+      preferredCountry
     );
 
     return jobs.map((job) => {
       const location = job.location.trim();
-      const persistedCountry = location ? (deterministicByLocation.get(location) || databaseMappings[location] || aiInferred.inferredCountries[location]) : undefined;
-      const descriptiveCountry = inferCountryFromText(`${job.location} ${job.description}`);
 
       return {
         ...job,
-        inferredCountry: persistedCountry || descriptiveCountry
+        inferredCountry: location ? resolvedCountries[location] : undefined
       };
     });
   }

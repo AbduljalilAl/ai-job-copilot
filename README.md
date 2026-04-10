@@ -85,6 +85,7 @@ packages/
 10. If the user does not provide a location, Saudi Arabia opportunities and remote roles are ranked ahead of otherwise similar global matches.
 11. The frontend can list stored opportunities from `GET /jobs` and open full details from `GET /jobs/:id`.
 12. Running a full analysis from a job details page reuses `POST /job/analyze`, which saves the opportunity into the existing history and tracking flow.
+13. Location-country inference now uses a seeded `GeoLocation` database table plus explicit remote/global handling. OpenAI is not used for location inference.
 
 ## Error handling
 
@@ -158,6 +159,21 @@ Prisma models live in [apps/api/prisma/schema.prisma](./apps/api/prisma/schema.p
   - `matchDetails`
   - `createdAt`
   - `updatedAt`
+- `GeoLocation`
+  - `geonameId`
+  - `cityName`
+  - `asciiName`
+  - `normalizedCityName`
+  - `countryCode`
+  - `countryName`
+  - `normalizedCountryName`
+  - `admin1Code`
+  - `normalizedAdmin1Code`
+  - `latitude`
+  - `longitude`
+  - `population`
+  - `timezone`
+  - `sourceDataset`
 
 ## Setup
 
@@ -176,6 +192,8 @@ OPENAI_MODEL="gpt-5-mini"
 JOB_DISCOVERY_PROVIDER="auto"
 GREENHOUSE_BOARD_TOKENS=""
 LEVER_COMPANY_TOKENS=""
+GEOLOCATION_CITIES_DATA_URL=""
+GEOLOCATION_COUNTRY_INFO_URL=""
 ```
 
 Use your Neon connection string for `DATABASE_URL`. Do not commit `.env` or real secrets. The repository ignores `.env` and `.env.*`, while keeping `.env.example` committed as a safe template.
@@ -190,6 +208,7 @@ Use your Neon connection string for `DATABASE_URL`. Do not commit `.env` or real
 `GREENHOUSE_BOARD_TOKENS` accepts a comma-separated list of extra public Greenhouse board tokens.
 `LEVER_COMPANY_TOKENS` accepts a comma-separated list of extra public Lever company tokens.
 Both are optional because the app now includes built-in registries for automated discovery.
+`GEOLOCATION_CITIES_DATA_URL` and `GEOLOCATION_COUNTRY_INFO_URL` are optional overrides for the geolocation seed script. Leave them blank to use the default public dataset URLs.
 
 For this monorepo, the primary local env file location is the repo root:
 
@@ -225,6 +244,17 @@ npm run prisma:migrate -- --name init
 
 Prisma reads `DATABASE_URL` from your local `.env`, so Neon credentials stay out of source control. The latest code adds `JobOpportunity` for job discovery and tracking, so run a new migration after pulling the latest code.
 
+5. Seed the geolocation reference table:
+
+```bash
+npm run geo:seed
+```
+
+This imports city-country reference data into `GeoLocation` from a public GeoNames dataset mirror. The app uses that table for location-country resolution, while remote/global values such as `Remote`, `Anywhere`, and `Worldwide` are handled explicitly in code instead of being stored as cities.
+The default seed uses:
+- a GitHub raw mirror of the GeoNames `cities15000` dataset for city rows
+- the official GeoNames `countryInfo.txt` file for country names
+
 ## Start the apps
 
 Run the API:
@@ -245,10 +275,12 @@ When `OPENAI_API_KEY` is set, the app enables:
 
 - grounded cover letter generation
 - practical application tips
+- optional top-job fit refinement
 
 `OPENAI_MODEL` is optional. If it is not set, the API defaults to `gpt-5-mini`.
 
 These outputs are constrained to the uploaded resume and the pasted role description. The app should not invent experience or replace the user's resume.
+OpenAI is not used for city-country lookup anymore.
 
 If OpenAI fails or is not configured, the app still returns the non-AI analysis and shows an AI error state for the AI sections.
 
@@ -278,11 +310,12 @@ npm run dev:web
 ## Testing job discovery and scoring
 
 1. Leave `JOB_DISCOVERY_PROVIDER=auto` for automated discovery. Optionally add extra Greenhouse or Lever tokens to `.env` if you want to search more companies than the built-in registries.
-2. Run the latest Prisma migration and generate the client:
+2. Run the latest Prisma migration, generate the client, and seed geolocation data:
 
 ```bash
 npm run prisma:migrate -- --name add-job-opportunities
 npm run prisma:generate
+npm run geo:seed
 ```
 
 3. Start the API and web app.

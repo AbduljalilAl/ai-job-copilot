@@ -19,16 +19,9 @@ export interface AIJobFitResult {
   aiAssistanceMessage?: string;
 }
 
-export interface AILocationInferenceResult {
-  inferredCountries: Record<string, string>;
-  aiAssistanceStatus: "available" | "error";
-  aiAssistanceMessage?: string;
-}
-
 export class AIService {
   private readonly client = env.OPENAI_API_KEY ? new OpenAI({ apiKey: env.OPENAI_API_KEY }) : null;
   private readonly model = env.OPENAI_MODEL;
-  private readonly locationInferenceCache = new Map<string, string>();
 
   async generateCoverLetter(resumeText: string, jobText: string) {
     const { trimmedJobText, trimmedResumeText } = this.validateInputs(resumeText, jobText);
@@ -236,106 +229,6 @@ export class AIService {
     }
   }
 
-  async inferCountriesForLocations(locations: string[]): Promise<AILocationInferenceResult> {
-    const uniqueLocations = Array.from(new Set(locations.map((location) => location.trim()).filter((location) => location.length > 0)));
-
-    if (uniqueLocations.length === 0) {
-      return {
-        inferredCountries: {},
-        aiAssistanceStatus: "available"
-      };
-    }
-
-    const inferredCountries: Record<string, string> = {};
-    const unresolvedLocations: string[] = [];
-
-    for (const location of uniqueLocations) {
-      const cached = this.locationInferenceCache.get(location);
-
-      if (cached) {
-        inferredCountries[location] = cached;
-      } else {
-        unresolvedLocations.push(location);
-      }
-    }
-
-    if (unresolvedLocations.length === 0) {
-      return {
-        inferredCountries,
-        aiAssistanceStatus: "available"
-      };
-    }
-
-    if (!this.client) {
-      return {
-        inferredCountries,
-        aiAssistanceStatus: "error",
-        aiAssistanceMessage: "OpenAI is not configured. Falling back to deterministic location matching only."
-      };
-    }
-
-    try {
-      const response = await this.client.responses.create({
-        model: this.model,
-        input: [
-          "You infer the country or remote/global status from job location text.",
-          "",
-          "Rules:",
-          "- Use only the location text provided",
-          "- Return only one of these values: Saudi Arabia, United Arab Emirates, Qatar, Kuwait, Bahrain, Oman, Egypt, Jordan, United Kingdom, Germany, Netherlands, Ireland, Canada, United States, Remote / Global, Unknown",
-          "- If the text is remote-only or worldwide, use Remote / Global",
-          "- If unsure, use Unknown",
-          "- Return valid JSON only as an array of objects with keys location and country",
-          "",
-          "Locations:",
-          ...unresolvedLocations.map((location) => `- ${location}`)
-        ].join("\n")
-      });
-
-      const raw = response.output_text.trim();
-
-      if (!raw) {
-        throw new Error("OpenAI returned an empty location inference response.");
-      }
-
-      const parsed = this.parseJson<unknown>(raw);
-      const items = Array.isArray(parsed) ? parsed : [];
-
-      for (const item of items) {
-        if (!item || typeof item !== "object") {
-          continue;
-        }
-
-        const location = typeof (item as { location?: unknown }).location === "string" ? (item as { location: string }).location.trim() : "";
-        const country = typeof (item as { country?: unknown }).country === "string" ? (item as { country: string }).country.trim() : "";
-
-        if (!location || !country || country === "Unknown") {
-          continue;
-        }
-
-        inferredCountries[location] = country;
-        this.locationInferenceCache.set(location, country);
-      }
-
-      return {
-        inferredCountries,
-        aiAssistanceStatus: "available"
-      };
-    } catch (error) {
-      console.error("OpenAI location inference failed", {
-        error: error instanceof Error ? error.message : String(error),
-        locationCount: unresolvedLocations.length,
-        model: this.model
-      });
-
-      return {
-        inferredCountries,
-        aiAssistanceStatus: "error",
-        aiAssistanceMessage: "OpenAI location inference was unavailable. Falling back to deterministic location matching only."
-      };
-    }
-  }
-
   private validateInputs(resumeText: string, jobText: string) {
     const trimmedResumeText = resumeText.trim();
     const trimmedJobText = jobText.trim();
@@ -392,15 +285,5 @@ export class AIService {
       });
       throw error;
     }
-  }
-
-  private parseJson<T>(raw: string): T {
-    const trimmed = raw.trim();
-    const withoutFence = trimmed
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/i, "")
-      .replace(/\s*```$/i, "");
-
-    return JSON.parse(withoutFence) as T;
   }
 }
