@@ -126,6 +126,19 @@ export class JobAnalysisService {
     });
   }
 
+  async deleteById(id: number) {
+    await this.getById(id);
+
+    await prisma.jobAnalysis.delete({
+      where: { id }
+    });
+  }
+
+  async deleteAll() {
+    const result = await prisma.jobAnalysis.deleteMany();
+    return result.count;
+  }
+
   private buildTailoredSummary(
     jobText: string,
     matchedTechnicalSkills: string[],

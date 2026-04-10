@@ -9,6 +9,16 @@ export interface AIGenerationResult {
   aiAssistanceMessage?: string;
 }
 
+export interface AIJobFitResult {
+  adjustedScore: number;
+  fitSummary: string;
+  strengths: string[];
+  gaps: string[];
+  confidence: "low" | "medium" | "high";
+  aiAssistanceStatus: "available" | "error";
+  aiAssistanceMessage?: string;
+}
+
 export class AIService {
   private readonly client = env.OPENAI_API_KEY ? new OpenAI({ apiKey: env.OPENAI_API_KEY }) : null;
   private readonly model = env.OPENAI_MODEL;
@@ -112,6 +122,109 @@ export class AIService {
         applicationTips: "",
         aiAssistanceStatus: "error",
         aiAssistanceMessage: "OpenAI could not generate the cover letter or application tips. The rest of the analysis is still available."
+      };
+    }
+  }
+
+  async generateJobFitAssessment(
+    resumeText: string,
+    jobText: string,
+    deterministic: {
+      baseScore: number;
+      matchedRequiredSkills: string[];
+      missingRequiredSkills: string[];
+      matchedOptionalSkills: string[];
+      missingOptionalSkills: string[];
+      matchedSoftSkills: string[];
+      missingSoftSkills: string[];
+      matchReason: string;
+    }
+  ): Promise<AIJobFitResult> {
+    const { trimmedJobText, trimmedResumeText } = this.validateInputs(resumeText, jobText);
+
+    if (!this.client) {
+      return {
+        adjustedScore: deterministic.baseScore,
+        fitSummary: deterministic.matchReason,
+        strengths: deterministic.matchedRequiredSkills.slice(0, 3),
+        gaps: deterministic.missingRequiredSkills.slice(0, 3),
+        confidence: "low",
+        aiAssistanceStatus: "error",
+        aiAssistanceMessage: "OpenAI is not configured. Deterministic scoring is being used."
+      };
+    }
+
+    try {
+      const response = await this.client.responses.create({
+        model: this.model,
+        input: [
+          "You are evaluating how well a student's resume fits a job or internship posting.",
+          "",
+          "Rules:",
+          "- Use only the resume and job description provided",
+          "- Do not invent experience, achievements, tools, or projects",
+          "- Treat the deterministic analysis as a baseline, not as ground truth",
+          "- Adjust the score conservatively by at most 12 points up or down",
+          "- Prefer small adjustments when uncertain",
+          "- Return valid JSON only",
+          "",
+          "Return this exact JSON shape:",
+          "{\"adjustedScore\": number, \"fitSummary\": string, \"strengths\": string[], \"gaps\": string[], \"confidence\": \"low\" | \"medium\" | \"high\"}",
+          "",
+          `Base score: ${deterministic.baseScore}`,
+          `Matched required skills: ${deterministic.matchedRequiredSkills.join(", ") || "none"}`,
+          `Missing required skills: ${deterministic.missingRequiredSkills.join(", ") || "none"}`,
+          `Matched optional skills: ${deterministic.matchedOptionalSkills.join(", ") || "none"}`,
+          `Missing optional skills: ${deterministic.missingOptionalSkills.join(", ") || "none"}`,
+          `Matched soft skills: ${deterministic.matchedSoftSkills.join(", ") || "none"}`,
+          `Missing soft skills: ${deterministic.missingSoftSkills.join(", ") || "none"}`,
+          `Current reason: ${deterministic.matchReason}`,
+          "",
+          "Resume:",
+          trimmedResumeText,
+          "",
+          "Job Description:",
+          trimmedJobText
+        ].join("\n")
+      });
+
+      const raw = response.output_text.trim();
+
+      if (!raw) {
+        throw new Error("OpenAI returned an empty job fit response.");
+      }
+
+      const parsed = JSON.parse(raw) as Partial<AIJobFitResult>;
+      const numericAdjusted = typeof parsed.adjustedScore === "number" ? Math.round(parsed.adjustedScore) : deterministic.baseScore;
+      const boundedAdjusted = Math.max(
+        Math.max(0, deterministic.baseScore - 12),
+        Math.min(100, Math.min(deterministic.baseScore + 12, numericAdjusted))
+      );
+
+      return {
+        adjustedScore: boundedAdjusted,
+        fitSummary: typeof parsed.fitSummary === "string" && parsed.fitSummary.trim() ? parsed.fitSummary.trim() : deterministic.matchReason,
+        strengths: Array.isArray(parsed.strengths) ? parsed.strengths.filter((item): item is string => typeof item === "string").slice(0, 4) : deterministic.matchedRequiredSkills.slice(0, 4),
+        gaps: Array.isArray(parsed.gaps) ? parsed.gaps.filter((item): item is string => typeof item === "string").slice(0, 4) : deterministic.missingRequiredSkills.slice(0, 4),
+        confidence: parsed.confidence === "low" || parsed.confidence === "medium" || parsed.confidence === "high" ? parsed.confidence : "medium",
+        aiAssistanceStatus: "available"
+      };
+    } catch (error) {
+      console.error("OpenAI job fit assessment failed", {
+        error: error instanceof Error ? error.message : String(error),
+        hasJobText: trimmedJobText.length > 0,
+        hasResumeText: trimmedResumeText.length > 0,
+        model: this.model
+      });
+
+      return {
+        adjustedScore: deterministic.baseScore,
+        fitSummary: deterministic.matchReason,
+        strengths: deterministic.matchedRequiredSkills.slice(0, 3),
+        gaps: deterministic.missingRequiredSkills.slice(0, 3),
+        confidence: "low",
+        aiAssistanceStatus: "error",
+        aiAssistanceMessage: "OpenAI fit refinement was unavailable, so deterministic scoring is being used."
       };
     }
   }

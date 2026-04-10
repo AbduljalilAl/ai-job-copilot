@@ -4,9 +4,10 @@ import { analyzeJob } from "../lib/api";
 import { useAppState } from "../state/AppState";
 
 export function JobDescriptionPage() {
-  const { jobText, resume, setAnalysis, setJobText } = useAppState();
+  const { jobText, resume, setAnalysis, setJobSearchSeed, setJobText } = useAppState();
   const [error, setError] = useState<string>();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isFindingJobs, setIsFindingJobs] = useState(false);
   const navigate = useNavigate();
 
   async function handleSubmit(event: React.FormEvent) {
@@ -36,6 +37,23 @@ export function JobDescriptionPage() {
     }
   }
 
+  function handleDiscoverJobs() {
+    if (!resume) {
+      setError("Upload a resume before finding matching jobs.");
+      return;
+    }
+
+    if (jobText.trim().length < 30) {
+      setError("Paste at least a short, realistic description so the app can use it as a targeting hint.");
+      return;
+    }
+
+    setError(undefined);
+    setIsFindingJobs(true);
+    setJobSearchSeed(jobText);
+    navigate("/jobs");
+  }
+
   return (
     <section className="panel">
       <h2>2. Paste the opportunity description</h2>
@@ -60,9 +78,14 @@ export function JobDescriptionPage() {
         />
         <p className="muted">{jobText.trim().length} characters</p>
         {error ? <p className="error">{error}</p> : null}
-        <button type="submit" disabled={isSubmitting || !resume || jobText.trim().length < 30}>
-          {isSubmitting ? "Analyzing and generating AI guidance..." : "Analyze fit"}
-        </button>
+        <div className="actions">
+          <button type="submit" disabled={isSubmitting || isFindingJobs || !resume || jobText.trim().length < 30}>
+            {isSubmitting ? "Analyzing and generating AI guidance..." : "Analyze fit"}
+          </button>
+          <button type="button" className="ghostButton" onClick={handleDiscoverJobs} disabled={isSubmitting || isFindingJobs || !resume || jobText.trim().length < 30}>
+            {isFindingJobs ? "Opening jobs..." : "Find matching jobs"}
+          </button>
+        </div>
       </form>
     </section>
   );

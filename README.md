@@ -28,7 +28,7 @@ packages/
   - short cover letter draft
 - Typed frontend state with localStorage restore for the current resume, latest job text, and latest analysis
 - Analysis history for reviewing recent saved results
-- Automated job discovery across a built-in Greenhouse board registry, plus safe mock fallback for local development
+- Automated job discovery across built-in Greenhouse and Lever source registries, plus safe mock fallback for local development
 - OpenAI-powered grounded application assistance for:
   - short cover letter
   - practical application tips
@@ -70,7 +70,7 @@ packages/
 ## How job discovery works
 
 1. The frontend sends job search preferences to `POST /jobs/search`.
-2. A provider layer automatically searches a curated set of public Greenhouse job boards. You can optionally append more boards through `GREENHOUSE_BOARD_TOKENS`.
+2. A provider layer automatically searches curated public Greenhouse and Lever sources. You can optionally append more sources through `GREENHOUSE_BOARD_TOKENS` and `LEVER_COMPANY_TOKENS`.
 3. If the user leaves the search form mostly blank, the backend derives a search profile from the latest uploaded resume.
 4. The backend normalizes job data, filters obvious mismatches using the search preferences, and then scores every remaining opportunity against the latest uploaded resume.
 5. Each opportunity is scored using the same `MatchingService`, with additional weighting for:
@@ -78,9 +78,13 @@ packages/
    - optional technical skills
    - soft skills
    - role relevance
-6. Scored opportunities are ranked best-first and persisted in `JobOpportunity`.
-7. The frontend can list stored opportunities from `GET /jobs` and open full details from `GET /jobs/:id`.
-8. Running a full analysis from a job details page reuses `POST /job/analyze`, which saves the opportunity into the existing history and tracking flow.
+6. The discovery pipeline now filters out obvious role-family mismatches such as sales or customer-success roles when the resume is targeting software, networking, cloud, embedded, QA, or data tracks.
+7. Senior-only roles are heavily penalized or excluded for internship and training-focused profiles.
+8. The strongest jobs receive an optional AI fit refinement on top of the deterministic baseline, which can slightly adjust the score and improve the explanation without replacing the core rules.
+9. Scored opportunities are ranked best-first and persisted in `JobOpportunity`.
+10. If the user does not provide a location, Saudi Arabia opportunities and remote roles are ranked ahead of otherwise similar global matches.
+11. The frontend can list stored opportunities from `GET /jobs` and open full details from `GET /jobs/:id`.
+12. Running a full analysis from a job details page reuses `POST /job/analyze`, which saves the opportunity into the existing history and tracking flow.
 
 ## Error handling
 
@@ -171,6 +175,7 @@ OPENAI_API_KEY="your_api_key_here"
 OPENAI_MODEL="gpt-5-mini"
 JOB_DISCOVERY_PROVIDER="auto"
 GREENHOUSE_BOARD_TOKENS=""
+LEVER_COMPANY_TOKENS=""
 ```
 
 Use your Neon connection string for `DATABASE_URL`. Do not commit `.env` or real secrets. The repository ignores `.env` and `.env.*`, while keeping `.env.example` committed as a safe template.
@@ -178,10 +183,13 @@ Use your Neon connection string for `DATABASE_URL`. Do not commit `.env` or real
 `JOB_DISCOVERY_PROVIDER` supports:
 
 - `auto`: search the built-in Greenhouse board registry and use mock jobs only if discovery fails
+- `structured`: require the built-in structured providers and skip the mock-only mode
 - `greenhouse`: require Greenhouse discovery and skip the mock-only mode
 - `mock`: force local mock jobs
 
-`GREENHOUSE_BOARD_TOKENS` accepts a comma-separated list of extra public Greenhouse board tokens. It is optional because the app now includes a built-in registry for automated discovery.
+`GREENHOUSE_BOARD_TOKENS` accepts a comma-separated list of extra public Greenhouse board tokens.
+`LEVER_COMPANY_TOKENS` accepts a comma-separated list of extra public Lever company tokens.
+Both are optional because the app now includes built-in registries for automated discovery.
 
 For this monorepo, the primary local env file location is the repo root:
 
@@ -269,7 +277,7 @@ npm run dev:web
 
 ## Testing job discovery and scoring
 
-1. Leave `JOB_DISCOVERY_PROVIDER=auto` for automated discovery. Optionally add extra Greenhouse board tokens to `.env` if you want to search more companies than the built-in registry.
+1. Leave `JOB_DISCOVERY_PROVIDER=auto` for automated discovery. Optionally add extra Greenhouse or Lever tokens to `.env` if you want to search more companies than the built-in registries.
 2. Run the latest Prisma migration and generate the client:
 
 ```bash
@@ -287,11 +295,14 @@ npm run prisma:generate
    - match score
    - short match reason
    - apply link when available
-   - Greenhouse source when discovery succeeds, otherwise mock source
+   - structured source information when discovery succeeds, otherwise mock source
+   - fewer unrelated commercial roles such as sales and account-executive jobs
 7. Open a job details page and confirm it shows:
    - full description
    - matched required, optional, and soft skills
    - missing required, optional, and soft skills
+   - role-fit summary and detected seniority
+   - AI fit summary when OpenAI refinement is available
    - apply link or a clear fallback message
 8. Run full analysis from the details page and confirm the result appears in the existing Results and History flows.
 

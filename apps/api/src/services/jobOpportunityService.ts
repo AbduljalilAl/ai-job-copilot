@@ -1,9 +1,11 @@
 import type { Prisma } from "@prisma/client";
-import type { JobSearchRequest, RoleType } from "@ai-job-copilot/shared";
+import type { JobSearchRequest, RoleType, WorkMode } from "@ai-job-copilot/shared";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../lib/errors.js";
+import { getDiscoveryLocationSignal, getSaudiPriorityScore } from "../lib/jobDiscoveryUtils.js";
 import { normalizeAnalysisText, uniqueSorted } from "../lib/textNormalization.js";
 import { MatchingService } from "./matchingService.js";
+import { AIService } from "./aiService.js";
 import { createJobProvider, type JobSearchPreferences, type RawJobOpportunity } from "./jobProviderService.js";
 import { ResumeService } from "./resumeService.js";
 
@@ -40,8 +42,24 @@ const focusSignals: Array<{ focusArea: string; keywords: string[] }> = [
   { focusArea: "backend", keywords: ["node.js", "express", "postgresql", "sql", "rest api", "prisma"] },
   { focusArea: "data", keywords: ["python", "sql", "data analysis", "machine learning", "excel"] },
   { focusArea: "qa", keywords: ["testing", "qa", "automation", "rest api"] },
-  { focusArea: "iot", keywords: ["iot", "embedded", "c++", "linux", "hardware"] }
+  { focusArea: "iot", keywords: ["iot", "embedded", "c++", "linux", "hardware"] },
+  { focusArea: "networking", keywords: ["computer networks", "network", "tcp ip", "routing", "switching", "cisco"] },
+  { focusArea: "cloud", keywords: ["aws", "cloud", "docker", "linux", "devops", "infrastructure"] },
+  { focusArea: "security", keywords: ["cybersecurity", "security", "information security", "penetration testing"] }
 ];
+
+const genericKeywordTokens = new Set([
+  "engineer",
+  "engineering",
+  "role",
+  "intern",
+  "internship",
+  "training",
+  "entry",
+  "level",
+  "job",
+  "opportunity"
+]);
 
 function pickBestRoleType(resumeText: string): RoleType {
   const normalized = normalizeAnalysisText(resumeText);
@@ -85,7 +103,13 @@ function deriveKeywordsFromResume(resumeText: string, focusArea?: string) {
       normalized.includes("testing") ? "testing" : undefined,
       normalized.includes("ui ux") ? "ui ux" : undefined,
       normalized.includes("figma") ? "figma" : undefined,
-      normalized.includes("data analysis") ? "data analysis" : undefined
+      normalized.includes("data analysis") ? "data analysis" : undefined,
+      normalized.includes("computer networks") || normalized.includes("network") ? "network engineering" : undefined,
+      normalized.includes("cloud") ? "cloud" : undefined,
+      normalized.includes("aws") ? "aws" : undefined,
+      normalized.includes("cybersecurity") || normalized.includes("security") ? "cybersecurity" : undefined,
+      normalized.includes("embedded") ? "embedded" : undefined,
+      normalized.includes("iot") ? "iot" : undefined
     ].filter((value): value is string => Boolean(value))
   );
 
@@ -101,13 +125,15 @@ function resolveSearchPreferences(request: JobSearchRequest, resumeText: string)
   const resolved: JobSearchPreferences = {
     keywords: normalizedKeywords || derivedKeywords,
     location: request.location?.trim() || undefined,
-    remoteOnly: request.remoteOnly ?? false,
+    country: request.country?.trim() || undefined,
+    remoteOnly: request.workMode === "remote" ? true : (request.remoteOnly ?? false),
+    workMode: request.workMode,
     roleType: request.roleType ?? derivedRoleType,
     focusArea: normalizedFocusArea || derivedFocusArea,
     preferenceText: request.preferenceText?.trim() || undefined
   };
 
-  const hasAnyUserSignal = Boolean(normalizedKeywords || request.roleType || normalizedFocusArea || request.location?.trim() || request.preferenceText?.trim() || request.remoteOnly);
+  const hasAnyUserSignal = Boolean(normalizedKeywords || request.roleType || normalizedFocusArea || request.location?.trim() || request.country?.trim() || request.preferenceText?.trim() || request.remoteOnly || request.workMode);
   const hasCoreUserSignal = Boolean(normalizedKeywords || request.roleType || normalizedFocusArea);
   const source = !hasAnyUserSignal
     ? "resume-derived"
@@ -138,13 +164,51 @@ function matchesLocation(job: RawJobOpportunity, preferences: JobSearchPreferenc
   return haystack.includes(normalizedLocation);
 }
 
+function matchesCountry(job: RawJobOpportunity, preferences: JobSearchPreferences) {
+  const normalizedCountry = normalizeAnalysisText(preferences.country ?? "");
+
+  if (!normalizedCountry) {
+    return true;
+  }
+
+  const haystack = normalizeAnalysisText(`${job.location} ${job.description}`);
+  return haystack.includes(normalizedCountry);
+}
+
+function getLocationPriority(job: Pick<RawJobOpportunity, "location" | "remoteType">, preferredLocation?: string) {
+  const { preferredLocation: normalizedLocation, defaultSaudiBias } = getDiscoveryLocationSignal(preferredLocation);
+  const haystack = normalizeAnalysisText(`${job.location} ${job.remoteType ?? ""}`);
+
+  if (normalizedLocation) {
+    return haystack.includes(normalizedLocation) ? 2 : 0;
+  }
+
+  if (defaultSaudiBias) {
+    return getSaudiPriorityScore(job.location, job.remoteType);
+  }
+
+  return 0;
+}
+
 function matchesRemote(job: RawJobOpportunity, preferences: JobSearchPreferences) {
+  if (preferences.workMode) {
+    return job.remoteType === preferences.workMode;
+  }
+
   if (!preferences.remoteOnly) {
     return true;
   }
 
   const haystack = normalizeAnalysisText(`${job.location} ${job.remoteType ?? ""} ${job.description}`);
   return haystack.includes("remote");
+}
+
+function normalizeWorkMode(value?: string | null): WorkMode | undefined {
+  if (value === "remote" || value === "hybrid" || value === "onsite") {
+    return value;
+  }
+
+  return undefined;
 }
 
 function matchesRoleType(job: RawJobOpportunity, preferences: JobSearchPreferences) {
@@ -159,21 +223,36 @@ function matchesKeywords(job: RawJobOpportunity, preferences: JobSearchPreferenc
   const keywordTokens = uniqueSorted(
     normalizeAnalysisText(buildPreferenceKeywords(preferences))
       .split(" ")
-      .filter((token) => token.length > 2)
+      .filter((token) => token.length > 2 && !genericKeywordTokens.has(token))
   );
 
   if (keywordTokens.length === 0) {
     return true;
   }
 
-  const haystack = normalizeAnalysisText(`${job.title} ${job.companyName} ${job.location} ${job.description}`);
-  return keywordTokens.some((token) => haystack.includes(token));
+  const titleHaystack = normalizeAnalysisText(`${job.title} ${job.companyName} ${job.location} ${job.remoteType ?? ""}`);
+  const descriptionHaystack = normalizeAnalysisText(job.description);
+  const overlapScore = keywordTokens.reduce((score, token) => {
+    if (titleHaystack.includes(token)) {
+      return score + 2;
+    }
+
+    if (descriptionHaystack.includes(token)) {
+      return score + 1;
+    }
+
+    return score;
+  }, 0);
+  const requiredOverlap = keywordTokens.length >= 4 ? 2 : 1;
+
+  return overlapScore >= requiredOverlap;
 }
 
 export class JobOpportunityService {
   constructor(
     private readonly resumeService = new ResumeService(),
     private readonly matchingService = new MatchingService(),
+    private readonly aiService = new AIService(),
     private readonly jobProvider = createJobProvider()
   ) {}
 
@@ -193,18 +272,24 @@ export class JobOpportunityService {
     const filteredJobs = discovered.jobs.filter((job) =>
       matchesKeywords(job, resolved)
       && matchesLocation(job, resolved)
+      && matchesCountry(job, resolved)
       && matchesRemote(job, resolved)
       && matchesRoleType(job, resolved)
     );
-    const rankedJobs = await Promise.all(
-      filteredJobs.map((job) => this.upsertScoredOpportunity(job, resume.content, resolved))
+    const scoredJobs = await Promise.all(
+      filteredJobs.map((job) => this.buildScoredOpportunity(job, resume.content, resolved))
+    );
+    const eligibleJobs = scoredJobs.filter((job) => !job.shouldAutoExclude && job.score >= 28);
+    const aiRefinedJobs = await this.applyAiFitRefinement(eligibleJobs, resume.content);
+    const persistedJobs = await Promise.all(
+      aiRefinedJobs.map((job) => this.upsertScoredOpportunity(job))
+    );
+    const sortedJobs = persistedJobs.sort((left, right) =>
+      this.compareRankedJobs(left, right, resolved.location)
     );
 
     return {
-      jobs: rankedJobs.sort(
-        (left: { matchScore: number; updatedAt: Date }, right: { matchScore: number; updatedAt: Date }) =>
-          right.matchScore - left.matchScore || right.updatedAt.getTime() - left.updatedAt.getTime()
-      ),
+      jobs: sortedJobs,
       meta: {
         provider: discovered.provider,
         fallbackUsed: discovered.fallbackUsed,
@@ -215,7 +300,9 @@ export class JobOpportunityService {
           roleType: resolved.roleType,
           focusArea: resolved.focusArea,
           location: resolved.location,
+          country: resolved.country,
           remoteOnly: resolved.remoteOnly,
+          workMode: resolved.workMode,
           source
         }
       }
@@ -228,11 +315,13 @@ export class JobOpportunityService {
         { matchScore: "desc" },
         { updatedAt: "desc" }
       ],
-      take: limit
+      take: Math.max(limit * 3, limit)
     });
 
     return {
-      jobs,
+      jobs: jobs
+        .sort((left, right) => this.compareRankedJobs(left, right))
+        .slice(0, limit),
       meta: this.jobProvider.getStatus()
     };
   }
@@ -253,19 +342,94 @@ export class JobOpportunityService {
     return job;
   }
 
-  private async upsertScoredOpportunity(job: RawJobOpportunity, resumeText: string, preferences: JobSearchPreferences) {
+  private async buildScoredOpportunity(job: RawJobOpportunity, resumeText: string, preferences: JobSearchPreferences) {
     const match = this.matchingService.analyze(resumeText, job.description, {
       keywords: buildPreferenceKeywords(preferences),
       roleType: preferences.roleType,
       title: job.title
     });
 
-    const matchedSkills: Prisma.InputJsonValue = uniqueSorted([...match.matchedTechnicalSkills, ...match.matchedSoftSkills]);
-    const missingSkills: Prisma.InputJsonValue = uniqueSorted([...match.missingTechnicalSkills, ...match.missingSoftSkills]);
-    const matchDetails: Prisma.InputJsonValue = {
-      ...match.matchDetails,
-      roleRelevance: match.roleRelevance
+    return {
+      job,
+      score: match.score,
+      matchReason: match.matchReason,
+      matchedSkills: uniqueSorted([...match.matchedTechnicalSkills, ...match.matchedSoftSkills]),
+      missingSkills: uniqueSorted([...match.missingTechnicalSkills, ...match.missingSoftSkills]),
+      matchDetails: {
+        ...match.matchDetails,
+        roleRelevance: match.roleRelevance,
+        baseScore: match.score,
+        aiAdjustedScore: match.score
+      },
+      deterministic: match,
+      shouldAutoExclude: match.shouldAutoExclude
     };
+  }
+
+  private async applyAiFitRefinement(
+    scoredJobs: Array<{
+      job: RawJobOpportunity;
+      score: number;
+      matchReason: string;
+      matchedSkills: string[];
+      missingSkills: string[];
+      matchDetails: Record<string, unknown>;
+      deterministic: ReturnType<MatchingService["analyze"]>;
+      shouldAutoExclude: boolean;
+    }>,
+    resumeText: string
+  ) {
+    const sortedByBase = [...scoredJobs].sort((left, right) => right.score - left.score);
+    const topJobs = new Set(sortedByBase.slice(0, Math.min(8, sortedByBase.length)).map((item) => item.job.sourceUrl));
+
+    return Promise.all(
+      scoredJobs.map(async (item) => {
+        if (!topJobs.has(item.job.sourceUrl)) {
+          return item;
+        }
+
+        const aiFit = await this.aiService.generateJobFitAssessment(resumeText, item.job.description, {
+          baseScore: item.score,
+          matchedRequiredSkills: item.deterministic.matchedRequiredSkills,
+          missingRequiredSkills: item.deterministic.missingRequiredSkills,
+          matchedOptionalSkills: item.deterministic.matchedOptionalSkills,
+          missingOptionalSkills: item.deterministic.missingOptionalSkills,
+          matchedSoftSkills: item.deterministic.matchedSoftSkills,
+          missingSoftSkills: item.deterministic.missingSoftSkills,
+          matchReason: item.matchReason
+        });
+
+        return {
+          ...item,
+          score: aiFit.adjustedScore,
+          matchReason: aiFit.fitSummary,
+          matchDetails: {
+            ...item.matchDetails,
+            aiAdjustedScore: aiFit.adjustedScore,
+            aiFitSummary: aiFit.fitSummary,
+            aiStrengths: aiFit.strengths,
+            aiGaps: aiFit.gaps,
+            aiConfidence: aiFit.confidence,
+            aiAssistanceStatus: aiFit.aiAssistanceStatus,
+            aiAssistanceMessage: aiFit.aiAssistanceMessage
+          }
+        };
+      })
+    );
+  }
+
+  private async upsertScoredOpportunity(scoredJob: {
+    job: RawJobOpportunity;
+    score: number;
+    matchReason: string;
+    matchedSkills: string[];
+    missingSkills: string[];
+    matchDetails: Record<string, unknown>;
+  }) {
+    const { job } = scoredJob;
+    const matchedSkills: Prisma.InputJsonValue = scoredJob.matchedSkills;
+    const missingSkills: Prisma.InputJsonValue = scoredJob.missingSkills;
+    const matchDetails = scoredJob.matchDetails as Prisma.InputJsonValue;
 
     return prismaWithJobs.jobOpportunity.upsert({
       where: {
@@ -285,10 +449,10 @@ export class JobOpportunityService {
         employmentType: job.employmentType,
         roleType: toPrismaRoleType(job.roleType),
         remoteType: job.remoteType,
-        matchScore: match.score,
+        matchScore: scoredJob.score,
         matchedSkills,
         missingSkills,
-        matchReason: match.matchReason,
+        matchReason: scoredJob.matchReason,
         matchDetails
       },
       update: {
@@ -300,12 +464,31 @@ export class JobOpportunityService {
         employmentType: job.employmentType,
         roleType: toPrismaRoleType(job.roleType),
         remoteType: job.remoteType,
-        matchScore: match.score,
+        matchScore: scoredJob.score,
         matchedSkills,
         missingSkills,
-        matchReason: match.matchReason,
+        matchReason: scoredJob.matchReason,
         matchDetails
       }
     });
+  }
+
+  private compareRankedJobs(
+    left: { matchScore: number; updatedAt: Date; location?: string | null; remoteType?: string | null },
+    right: { matchScore: number; updatedAt: Date; location?: string | null; remoteType?: string | null },
+    preferredLocation?: string
+  ) {
+    const leftLocationPriority = getLocationPriority({
+      location: left.location ?? "",
+      remoteType: normalizeWorkMode(left.remoteType)
+    }, preferredLocation);
+    const rightLocationPriority = getLocationPriority({
+      location: right.location ?? "",
+      remoteType: normalizeWorkMode(right.remoteType)
+    }, preferredLocation);
+
+    return rightLocationPriority - leftLocationPriority
+      || right.matchScore - left.matchScore
+      || right.updatedAt.getTime() - left.updatedAt.getTime();
   }
 }

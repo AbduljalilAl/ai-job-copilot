@@ -37,6 +37,14 @@ function toRoleType(value: StoredJobOpportunity["roleType"]): JobOpportunityDto[
   return value ?? undefined;
 }
 
+function toWorkMode(value: StoredJobOpportunity["remoteType"]): JobOpportunityDto["remoteType"] {
+  if (value === "remote" || value === "hybrid" || value === "onsite") {
+    return value;
+  }
+
+  return undefined;
+}
+
 function toMatchDetails(value: unknown): JobMatchDetails {
   const details = value as Partial<JobMatchDetails> | undefined;
 
@@ -48,7 +56,19 @@ function toMatchDetails(value: unknown): JobMatchDetails {
     matchedSoftSkills: toStringArray(details?.matchedSoftSkills),
     missingSoftSkills: toStringArray(details?.missingSoftSkills),
     scoreBand: details?.scoreBand ?? "weak match",
-    roleRelevance: typeof details?.roleRelevance === "number" ? details.roleRelevance : undefined
+    roleRelevance: typeof details?.roleRelevance === "number" ? details.roleRelevance : undefined,
+    roleAlignmentSummary: typeof details?.roleAlignmentSummary === "string" ? details.roleAlignmentSummary : undefined,
+    candidateRoleFamilies: toStringArray(details?.candidateRoleFamilies),
+    jobRoleFamilies: toStringArray(details?.jobRoleFamilies),
+    seniority: details?.seniority === "entry" || details?.seniority === "mid" || details?.seniority === "senior" ? details.seniority : undefined,
+    baseScore: typeof details?.baseScore === "number" ? details.baseScore : undefined,
+    aiAdjustedScore: typeof details?.aiAdjustedScore === "number" ? details.aiAdjustedScore : undefined,
+    aiFitSummary: typeof details?.aiFitSummary === "string" ? details.aiFitSummary : undefined,
+    aiStrengths: toStringArray(details?.aiStrengths),
+    aiGaps: toStringArray(details?.aiGaps),
+    aiConfidence: details?.aiConfidence === "low" || details?.aiConfidence === "medium" || details?.aiConfidence === "high" ? details.aiConfidence : undefined,
+    aiAssistanceStatus: details?.aiAssistanceStatus === "available" || details?.aiAssistanceStatus === "error" ? details.aiAssistanceStatus : undefined,
+    aiAssistanceMessage: typeof details?.aiAssistanceMessage === "string" ? details.aiAssistanceMessage : undefined
   };
 }
 
@@ -64,7 +84,7 @@ export function mapJobOpportunity(record: StoredJobOpportunity): JobOpportunityD
     description: record.description,
     employmentType: record.employmentType ?? undefined,
     roleType: toRoleType(record.roleType),
-    remoteType: record.remoteType ?? undefined,
+    remoteType: toWorkMode(record.remoteType),
     matchScore: record.matchScore,
     matchReason: record.matchReason,
     matchedSkills: toStringArray(record.matchedSkills),

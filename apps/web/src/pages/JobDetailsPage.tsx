@@ -102,8 +102,27 @@ export function JobDetailsPage() {
           </div>
         </div>
         <p>{job.matchReason}</p>
+        {job.matchDetails.roleAlignmentSummary ? <p className="muted">Role fit: {job.matchDetails.roleAlignmentSummary}</p> : null}
+        {job.matchDetails.jobRoleFamilies?.length ? <p className="muted">Detected role families: {job.matchDetails.jobRoleFamilies.join(", ")}</p> : null}
+        {job.matchDetails.seniority ? <p className="muted">Seniority: {job.matchDetails.seniority}</p> : null}
+        {job.matchDetails.aiFitSummary ? <p className="muted">AI fit summary: {job.matchDetails.aiFitSummary}</p> : null}
+        {typeof job.matchDetails.baseScore === "number" && typeof job.matchDetails.aiAdjustedScore === "number" && job.matchDetails.baseScore !== job.matchDetails.aiAdjustedScore ? (
+          <p className="muted">Base score {job.matchDetails.baseScore}% adjusted to {job.matchDetails.aiAdjustedScore}% after AI fit review.</p>
+        ) : null}
         {!job.applyUrl ? <p className="muted">No apply link is available for this opportunity yet.</p> : null}
+        {job.matchDetails.aiAssistanceStatus === "error" && job.matchDetails.aiAssistanceMessage ? (
+          <p className="muted">{job.matchDetails.aiAssistanceMessage}</p>
+        ) : null}
       </article>
+
+      {job.matchDetails.aiStrengths?.length || job.matchDetails.aiGaps?.length ? (
+        <article className="panel">
+          <h3>AI fit review</h3>
+          {job.matchDetails.aiStrengths?.length ? <p><strong>Strengths:</strong> {job.matchDetails.aiStrengths.join(", ")}</p> : null}
+          {job.matchDetails.aiGaps?.length ? <p><strong>Watch-outs:</strong> {job.matchDetails.aiGaps.join(", ")}</p> : null}
+          {job.matchDetails.aiConfidence ? <p className="muted">Confidence: {job.matchDetails.aiConfidence}</p> : null}
+        </article>
+      ) : null}
 
       {error ? <article className="panel"><p className="error">{error}</p></article> : null}
 

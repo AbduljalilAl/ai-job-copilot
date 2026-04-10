@@ -1,6 +1,7 @@
-import type { RoleType } from "@ai-job-copilot/shared";
+import type { RoleType, WorkMode } from "@ai-job-copilot/shared";
 import { env } from "../config/env.js";
 import { greenhouseBoardRegistry } from "../data/greenhouseBoardRegistry.js";
+import { leverCompanyRegistry } from "../data/leverCompanyRegistry.js";
 import { normalizeAnalysisText } from "../lib/textNormalization.js";
 
 export interface RawJobOpportunity {
@@ -13,13 +14,15 @@ export interface RawJobOpportunity {
   description: string;
   employmentType?: string;
   roleType?: RoleType;
-  remoteType?: string;
+  remoteType?: WorkMode;
 }
 
 export interface JobSearchPreferences {
   keywords: string;
   location?: string;
+  country?: string;
   remoteOnly?: boolean;
+  workMode?: WorkMode;
   roleType: RoleType;
   focusArea?: string;
   preferenceText?: string;
@@ -27,7 +30,7 @@ export interface JobSearchPreferences {
 
 export interface JobProviderSearchResult {
   jobs: RawJobOpportunity[];
-  provider: "greenhouse" | "mock";
+  provider: "greenhouse" | "lever" | "structured" | "mock";
   fallbackUsed: boolean;
   message?: string;
   boardCount?: number;
@@ -36,7 +39,7 @@ export interface JobProviderSearchResult {
 export interface JobProvider {
   search(preferences: JobSearchPreferences): Promise<JobProviderSearchResult>;
   getStatus(): {
-    provider: "greenhouse" | "mock";
+    provider: "greenhouse" | "lever" | "structured" | "mock";
     fallbackUsed: boolean;
     message?: string;
     boardCount?: number;
@@ -63,6 +66,20 @@ interface GreenhouseJobPost {
     location?: string;
     name?: string;
   }>;
+}
+
+interface LeverJobPost {
+  text?: string;
+  hostedUrl?: string;
+  applyUrl?: string;
+  descriptionPlain?: string;
+  description?: string;
+  categories?: {
+    location?: string;
+    commitment?: string;
+    team?: string;
+    allLocations?: string[];
+  };
 }
 
 const mockJobs: RawJobOpportunity[] = [
@@ -173,11 +190,27 @@ function parseExtraBoardTokens() {
     .filter((token) => token.length > 0);
 }
 
+function parseExtraLeverTokens() {
+  return (env.LEVER_COMPANY_TOKENS ?? "")
+    .split(",")
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+}
+
 function getConfiguredBoardTokens() {
   return Array.from(
     new Set([
       ...greenhouseBoardRegistry.map((entry) => entry.token),
       ...parseExtraBoardTokens()
+    ])
+  );
+}
+
+function getConfiguredLeverTokens() {
+  return Array.from(
+    new Set([
+      ...leverCompanyRegistry.map((entry) => entry.token),
+      ...parseExtraLeverTokens()
     ])
   );
 }
@@ -302,6 +335,48 @@ function mapGreenhouseJob(boardToken: string, companyName: string, job: Greenhou
   };
 }
 
+function mapLeverJob(companyToken: string, companyName: string, job: LeverJobPost): RawJobOpportunity | undefined {
+  const description = stripHtml(job.descriptionPlain || job.description || "");
+  const sourceUrl = job.hostedUrl?.trim();
+  const title = job.text?.trim();
+
+  if (!sourceUrl || !title || !description) {
+    return undefined;
+  }
+
+  const location = job.categories?.location
+    || job.categories?.allLocations?.find(Boolean)
+    || "Location not specified";
+
+  return {
+    title,
+    companyName,
+    location,
+    source: "lever",
+    sourceUrl,
+    applyUrl: job.applyUrl?.trim() || sourceUrl,
+    description,
+    employmentType: job.categories?.commitment?.trim() || undefined,
+    roleType: inferRoleType(`${title} ${description}`),
+    remoteType: inferRemoteType(location, description)
+  };
+}
+
+function dedupeJobs(jobs: RawJobOpportunity[]) {
+  const seen = new Set<string>();
+
+  return jobs.filter((job) => {
+    const key = normalizeAnalysisText(`${job.companyName}|${job.title}|${job.location}|${job.sourceUrl}`);
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
 export class MockJobProvider implements JobProvider {
   async search(preferences: JobSearchPreferences) {
     return {
@@ -344,7 +419,9 @@ export class GreenhouseJobProvider implements JobProvider {
     const successfulBoards = jobsByBoard
       .filter((result): result is PromiseFulfilledResult<RawJobOpportunity[]> => result.status === "fulfilled")
       .map((result) => result.value);
-    const failedBoards = jobsByBoard.filter((result) => result.status === "rejected").length;
+    const failedBoardNames = jobsByBoard.flatMap((result, index) =>
+      result.status === "rejected" ? [this.boardTokens[index]] : []
+    );
     const jobs = successfulBoards.flat();
 
     return {
@@ -352,8 +429,8 @@ export class GreenhouseJobProvider implements JobProvider {
       provider: "greenhouse",
       fallbackUsed: false,
       boardCount: this.boardTokens.length,
-      message: failedBoards > 0
-        ? `Loaded jobs from ${successfulBoards.length} Greenhouse boards. ${failedBoards} boards failed and were skipped.`
+      message: failedBoardNames.length > 0
+        ? `Loaded jobs from ${successfulBoards.length} Greenhouse boards. Failed and skipped: ${failedBoardNames.slice(0, 5).join(", ")}${failedBoardNames.length > 5 ? "..." : ""}.`
         : `Loaded jobs from ${this.boardTokens.length} Greenhouse boards.`
     } satisfies JobProviderSearchResult;
   }
@@ -368,14 +445,103 @@ export class GreenhouseJobProvider implements JobProvider {
   }
 }
 
+export class LeverJobProvider implements JobProvider {
+  constructor(private readonly companyTokens: string[]) {}
+
+  async search() {
+    const jobsByCompany = await Promise.allSettled(
+      this.companyTokens.map(async (companyToken) => {
+        const companyName = leverCompanyRegistry.find((entry) => entry.token === companyToken)?.companyName
+          || companyToken.replace(/[-_]+/g, " ");
+        const jobs = await fetchJson<LeverJobPost[]>(`https://api.lever.co/v0/postings/${encodeURIComponent(companyToken)}?mode=json`);
+
+        return jobs
+          .map((job) => mapLeverJob(companyToken, companyName, job))
+          .filter((job): job is RawJobOpportunity => Boolean(job));
+      })
+    );
+
+    const successfulCompanies = jobsByCompany
+      .filter((result): result is PromiseFulfilledResult<RawJobOpportunity[]> => result.status === "fulfilled")
+      .map((result) => result.value);
+    const failedCompanyNames = jobsByCompany.flatMap((result, index) =>
+      result.status === "rejected" ? [this.companyTokens[index]] : []
+    );
+
+    return {
+      jobs: successfulCompanies.flat(),
+      provider: "lever",
+      fallbackUsed: false,
+      boardCount: this.companyTokens.length,
+      message: failedCompanyNames.length > 0
+        ? `Loaded jobs from ${successfulCompanies.length} Lever companies. Failed and skipped: ${failedCompanyNames.slice(0, 5).join(", ")}${failedCompanyNames.length > 5 ? "..." : ""}.`
+        : `Loaded jobs from ${this.companyTokens.length} Lever companies.`
+    } satisfies JobProviderSearchResult;
+  }
+
+  getStatus() {
+    return {
+      provider: "lever" as const,
+      fallbackUsed: false,
+      boardCount: this.companyTokens.length,
+      message: `Automatic discovery is searching ${this.companyTokens.length} Lever companies.`
+    };
+  }
+}
+
+class StructuredJobProvider implements JobProvider {
+  constructor(private readonly providers: JobProvider[]) {}
+
+  async search(preferences: JobSearchPreferences) {
+    const results = await Promise.allSettled(this.providers.map((provider) => provider.search(preferences)));
+    const successfulResults = results.filter((result): result is PromiseFulfilledResult<JobProviderSearchResult> => result.status === "fulfilled");
+    const failedProviderMessages = results.flatMap((result, index) => {
+      if (result.status === "fulfilled") {
+        return [];
+      }
+
+      const providerStatus = this.providers[index]?.getStatus();
+      return [providerStatus?.provider ?? "provider"];
+    });
+
+    const jobs = dedupeJobs(successfulResults.flatMap((result) => result.value.jobs));
+    const totalBoardCount = successfulResults.reduce((sum, result) => sum + (result.value.boardCount ?? 0), 0);
+    const summary = successfulResults
+      .map((result) => result.value.message)
+      .filter((message): message is string => Boolean(message));
+
+    return {
+      jobs,
+      provider: "structured",
+      fallbackUsed: false,
+      boardCount: totalBoardCount,
+      message: [
+        summary.length > 0 ? summary.join(" ") : undefined,
+        failedProviderMessages.length > 0 ? `Other sources failed and were skipped: ${failedProviderMessages.join(", ")}.` : undefined
+      ].filter(Boolean).join(" ")
+    } satisfies JobProviderSearchResult;
+  }
+
+  getStatus() {
+    const boardCount = this.providers.reduce((sum, provider) => sum + (provider.getStatus().boardCount ?? 0), 0);
+
+    return {
+      provider: "structured" as const,
+      fallbackUsed: false,
+      boardCount,
+      message: `Automatic discovery is searching ${boardCount} configured job sources across Greenhouse and Lever.`
+    };
+  }
+}
+
 class AutoJobProvider implements JobProvider {
   constructor(
-    private readonly greenhouseProvider: JobProvider | undefined,
+    private readonly structuredProvider: JobProvider | undefined,
     private readonly mockProvider = new MockJobProvider()
   ) {}
 
   async search(preferences: JobSearchPreferences) {
-    if (!this.greenhouseProvider) {
+    if (!this.structuredProvider) {
       const fallback = await this.mockProvider.search(preferences);
 
       return {
@@ -386,7 +552,7 @@ class AutoJobProvider implements JobProvider {
     }
 
     try {
-      const greenhouseJobs = await this.greenhouseProvider.search(preferences);
+      const greenhouseJobs = await this.structuredProvider.search(preferences);
 
       if (greenhouseJobs.jobs.length > 0) {
         return greenhouseJobs;
@@ -408,21 +574,34 @@ class AutoJobProvider implements JobProvider {
   }
 
   getStatus() {
-    if (!this.greenhouseProvider) {
+    if (!this.structuredProvider) {
       return {
         provider: "mock" as const,
         fallbackUsed: true,
-        message: "Automatic discovery is using mock jobs because Greenhouse boards are unavailable."
+        message: "Automatic discovery is using mock jobs because structured providers are unavailable."
       };
     }
 
-    return this.greenhouseProvider.getStatus();
+    return this.structuredProvider.getStatus();
   }
 }
 
 export function createJobProvider(): JobProvider {
-  const boardTokens = getConfiguredBoardTokens();
-  const greenhouseProvider = boardTokens.length > 0 ? new GreenhouseJobProvider(boardTokens) : undefined;
+  const greenhouseBoardTokens = getConfiguredBoardTokens();
+  const leverCompanyTokens = getConfiguredLeverTokens();
+  const greenhouseProvider = greenhouseBoardTokens.length > 0 ? new GreenhouseJobProvider(greenhouseBoardTokens) : undefined;
+  const leverProvider = leverCompanyTokens.length > 0 ? new LeverJobProvider(leverCompanyTokens) : undefined;
+  const structuredProviders: JobProvider[] = [];
+
+  if (greenhouseProvider) {
+    structuredProviders.push(greenhouseProvider);
+  }
+
+  if (leverProvider) {
+    structuredProviders.push(leverProvider);
+  }
+
+  const structuredProvider = structuredProviders.length > 0 ? new StructuredJobProvider(structuredProviders) : undefined;
 
   if (env.JOB_DISCOVERY_PROVIDER === "mock") {
     return new MockJobProvider();
@@ -436,5 +615,13 @@ export function createJobProvider(): JobProvider {
     return greenhouseProvider;
   }
 
-  return new AutoJobProvider(greenhouseProvider);
+  if (env.JOB_DISCOVERY_PROVIDER === "structured") {
+    if (!structuredProvider) {
+      throw new Error("JOB_DISCOVERY_PROVIDER is set to structured but no structured providers are configured.");
+    }
+
+    return structuredProvider;
+  }
+
+  return new AutoJobProvider(structuredProvider);
 }

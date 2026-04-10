@@ -7,7 +7,9 @@ import { JobOpportunityService } from "../services/jobOpportunityService.js";
 const searchSchema = z.object({
   keywords: z.string().trim().max(120, "Keywords must be 120 characters or fewer.").optional().or(z.literal("")),
   location: z.string().trim().max(120, "Location must be 120 characters or fewer.").optional().or(z.literal("")),
+  country: z.string().trim().max(80, "Country must be 80 characters or fewer.").optional().or(z.literal("")),
   remoteOnly: z.boolean().optional(),
+  workMode: z.enum(["remote", "hybrid", "onsite"]).optional(),
   roleType: z.enum(["internship", "summer training", "entry-level"]).optional(),
   focusArea: z.string().trim().max(120, "Focus area must be 120 characters or fewer.").optional().or(z.literal("")),
   preferenceText: z.string().trim().max(400, "Preference description must be 400 characters or fewer.").optional().or(z.literal(""))

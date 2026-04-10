@@ -7,10 +7,13 @@ interface AppStateValue {
   resume?: ResumeDto;
   analysis?: JobAnalysisDto;
   jobText: string;
+  jobSearchSeed?: string;
   setResume: (resume?: ResumeDto) => void;
   setAnalysis: (analysis?: JobAnalysisDto) => void;
   setJobText: (jobText: string) => void;
+  setJobSearchSeed: (value?: string) => void;
   openAnalysis: (analysis: JobAnalysisDto) => void;
+  clearAnalysis: () => void;
   clearAll: () => void;
 }
 
@@ -21,6 +24,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [resume, setResume] = useState<ResumeDto | undefined>(persistedState.resume);
   const [analysis, setAnalysis] = useState<JobAnalysisDto | undefined>(persistedState.analysis);
   const [jobText, setJobText] = useState(persistedState.jobText ?? "");
+  const [jobSearchSeed, setJobSearchSeed] = useState<string | undefined>(persistedState.jobText ?? undefined);
 
   useEffect(() => {
     savePersistedState({ resume, analysis, jobText });
@@ -30,7 +34,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setResume(undefined);
     setAnalysis(undefined);
     setJobText("");
+    setJobSearchSeed(undefined);
     clearPersistedState();
+  }
+
+  function clearAnalysis() {
+    setAnalysis(undefined);
+    setJobText("");
   }
 
   function openAnalysis(nextAnalysis: JobAnalysisDto) {
@@ -39,7 +49,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AppStateContext.Provider value={{ resume, analysis, jobText, setResume, setAnalysis, setJobText, openAnalysis, clearAll }}>
+    <AppStateContext.Provider value={{ resume, analysis, jobText, jobSearchSeed, setResume, setAnalysis, setJobText, setJobSearchSeed, openAnalysis, clearAnalysis, clearAll }}>
       {children}
     </AppStateContext.Provider>
   );

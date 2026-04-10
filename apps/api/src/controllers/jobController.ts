@@ -1,6 +1,7 @@
 import type {
   AnalysisHistoryResponse,
   AnalysisResponse,
+  DeleteAnalysesResponse,
   UpdateAnalysisNotesRequest,
   UpdateAnalysisStatusRequest
 } from "@ai-job-copilot/shared";
@@ -99,6 +100,33 @@ export async function updateAnalysisNotes(request: Request, response: Response, 
     const analysis = await jobAnalysisService.updateNotes(id, payload.notes);
     const responsePayload: AnalysisResponse = {
       analysis: mapStoredAnalysis(analysis)
+    };
+
+    response.json(responsePayload);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function deleteAnalysisById(request: Request, response: Response, next: NextFunction) {
+  try {
+    const { id } = paramsSchema.parse(request.params);
+    await jobAnalysisService.deleteById(id);
+    const responsePayload: DeleteAnalysesResponse = {
+      deletedCount: 1
+    };
+
+    response.json(responsePayload);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function deleteAllAnalyses(_request: Request, response: Response, next: NextFunction) {
+  try {
+    const deletedCount = await jobAnalysisService.deleteAll();
+    const responsePayload: DeleteAnalysesResponse = {
+      deletedCount
     };
 
     response.json(responsePayload);

@@ -13,6 +13,7 @@ export interface SkillBuckets {
 export type AnalysisStatus = "saved" | "applied" | "interview" | "rejected";
 export type RoleType = "internship" | "summer training" | "entry-level";
 export type ScoreBand = "strong match" | "good match" | "partial match" | "weak match";
+export type WorkMode = "remote" | "hybrid" | "onsite";
 
 export interface AnalysisResult {
   score: number;
@@ -62,6 +63,10 @@ export interface AnalysisHistoryResponse {
   analyses: JobAnalysisDto[];
 }
 
+export interface DeleteAnalysesResponse {
+  deletedCount: number;
+}
+
 export interface AnalysisResponse {
   analysis: JobAnalysisDto;
 }
@@ -69,14 +74,16 @@ export interface AnalysisResponse {
 export interface JobSearchRequest {
   keywords?: string;
   location?: string;
+  country?: string;
   remoteOnly?: boolean;
+  workMode?: WorkMode;
   roleType?: RoleType;
   focusArea?: string;
   preferenceText?: string;
 }
 
 export interface JobDiscoveryMeta {
-  provider: "greenhouse" | "mock";
+  provider: "greenhouse" | "ashby" | "lever" | "structured" | "mock";
   fallbackUsed: boolean;
   message?: string;
   boardCount?: number;
@@ -85,7 +92,9 @@ export interface JobDiscoveryMeta {
     roleType: RoleType;
     focusArea?: string;
     location?: string;
+    country?: string;
     remoteOnly?: boolean;
+    workMode?: WorkMode;
     source: "resume-derived" | "user-specified" | "mixed";
   };
 }
@@ -99,6 +108,18 @@ export interface JobMatchDetails {
   missingSoftSkills: string[];
   scoreBand: ScoreBand;
   roleRelevance?: number;
+  roleAlignmentSummary?: string;
+  candidateRoleFamilies?: string[];
+  jobRoleFamilies?: string[];
+  seniority?: "entry" | "mid" | "senior";
+  baseScore?: number;
+  aiAdjustedScore?: number;
+  aiFitSummary?: string;
+  aiStrengths?: string[];
+  aiGaps?: string[];
+  aiConfidence?: "low" | "medium" | "high";
+  aiAssistanceStatus?: "available" | "error";
+  aiAssistanceMessage?: string;
 }
 
 export interface JobOpportunityDto {
@@ -112,7 +133,7 @@ export interface JobOpportunityDto {
   description: string;
   employmentType?: string;
   roleType?: RoleType;
-  remoteType?: string;
+  remoteType?: WorkMode;
   matchScore: number;
   matchReason: string;
   matchedSkills: string[];

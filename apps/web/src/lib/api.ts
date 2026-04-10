@@ -2,6 +2,7 @@ import type {
   AnalysisHistoryResponse,
   AnalysisResponse,
   ApiErrorPayload,
+  DeleteAnalysesResponse,
   JobAnalyzeRequest,
   JobAnalyzeResponse,
   JobResponse,
@@ -72,6 +73,22 @@ export async function getAnalysisById(id: number) {
   const response = await fetch(`${apiBaseUrl}/analysis/${id}`);
 
   return handleResponse<AnalysisResponse>(response);
+}
+
+export async function deleteAnalysisById(id: number) {
+  const response = await fetch(`${apiBaseUrl}/analysis/${id}`, {
+    method: "DELETE"
+  });
+
+  return handleResponse<DeleteAnalysesResponse>(response);
+}
+
+export async function deleteAllAnalyses() {
+  const response = await fetch(`${apiBaseUrl}/analysis/history`, {
+    method: "DELETE"
+  });
+
+  return handleResponse<DeleteAnalysesResponse>(response);
 }
 
 export async function updateAnalysisStatus(id: number, payload: UpdateAnalysisStatusRequest) {

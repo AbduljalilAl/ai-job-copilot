@@ -164,6 +164,20 @@ textarea {
   padding: 1rem 1.1rem;
 }
 
+.historyCard {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.historyOpenButton {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+}
+
 .historyItem p {
   margin: 0.6rem 0 0;
   color: #304455;
@@ -255,6 +269,10 @@ textarea {
   grid-column: 1 / -1;
 }
 
+.compactField {
+  min-width: 120px;
+}
+
 .inlineField {
   margin-bottom: 1rem;
   max-width: 280px;
@@ -273,6 +291,10 @@ select {
   padding: 0.8rem 0.9rem;
 }
 
+.scrollSelect {
+  max-height: 14rem;
+}
+
 .statusBadge {
   display: inline-flex;
   align-items: center;
@@ -287,6 +309,11 @@ select {
 .jobGrid {
   display: grid;
   gap: 1rem;
+}
+
+.loadMorePanel {
+  display: grid;
+  gap: 0.75rem;
 }
 
 .jobCard h3 {

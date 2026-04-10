@@ -1,2 +1,1 @@
--- AlterTable
-ALTER TABLE "JobAnalysis" ALTER COLUMN "updatedAt" DROP DEFAULT;
+-- No-op migration kept for migration history compatibility.
