@@ -14,6 +14,7 @@ export interface AIJobFitResult {
   fitSummary: string;
   strengths: string[];
   gaps: string[];
+  preferenceAlignmentSummary?: string;
   confidence: "low" | "medium" | "high";
   aiAssistanceStatus: "available" | "error";
   aiAssistanceMessage?: string;
@@ -138,9 +139,11 @@ export class AIService {
       matchedSoftSkills: string[];
       missingSoftSkills: string[];
       matchReason: string;
-    }
+    },
+    targetDescription?: string
   ): Promise<AIJobFitResult> {
     const { trimmedJobText, trimmedResumeText } = this.validateInputs(resumeText, jobText);
+    const trimmedTargetDescription = targetDescription?.trim();
 
     if (!this.client) {
       return {
@@ -162,14 +165,16 @@ export class AIService {
           "",
           "Rules:",
           "- Use only the resume and job description provided",
+          "- If a target preference description is provided, use it as a semantic intent hint, not as a strict keyword checklist",
           "- Do not invent experience, achievements, tools, or projects",
           "- Treat the deterministic analysis as a baseline, not as ground truth",
+          "- Consider close meaning and role similarity, not only exact wording overlap",
           "- Adjust the score conservatively by at most 12 points up or down",
           "- Prefer small adjustments when uncertain",
           "- Return valid JSON only",
           "",
           "Return this exact JSON shape:",
-          "{\"adjustedScore\": number, \"fitSummary\": string, \"strengths\": string[], \"gaps\": string[], \"confidence\": \"low\" | \"medium\" | \"high\"}",
+          "{\"adjustedScore\": number, \"fitSummary\": string, \"strengths\": string[], \"gaps\": string[], \"preferenceAlignmentSummary\": string, \"confidence\": \"low\" | \"medium\" | \"high\"}",
           "",
           `Base score: ${deterministic.baseScore}`,
           `Matched required skills: ${deterministic.matchedRequiredSkills.join(", ") || "none"}`,
@@ -180,6 +185,9 @@ export class AIService {
           `Missing soft skills: ${deterministic.missingSoftSkills.join(", ") || "none"}`,
           `Current reason: ${deterministic.matchReason}`,
           "",
+          trimmedTargetDescription
+            ? ["Target preference description:", trimmedTargetDescription, ""].join("\n")
+            : "",
           "Resume:",
           trimmedResumeText,
           "",
@@ -206,6 +214,12 @@ export class AIService {
         fitSummary: typeof parsed.fitSummary === "string" && parsed.fitSummary.trim() ? parsed.fitSummary.trim() : deterministic.matchReason,
         strengths: Array.isArray(parsed.strengths) ? parsed.strengths.filter((item): item is string => typeof item === "string").slice(0, 4) : deterministic.matchedRequiredSkills.slice(0, 4),
         gaps: Array.isArray(parsed.gaps) ? parsed.gaps.filter((item): item is string => typeof item === "string").slice(0, 4) : deterministic.missingRequiredSkills.slice(0, 4),
+        preferenceAlignmentSummary:
+          typeof parsed.preferenceAlignmentSummary === "string" && parsed.preferenceAlignmentSummary.trim()
+            ? parsed.preferenceAlignmentSummary.trim()
+            : trimmedTargetDescription
+              ? deterministic.matchReason
+              : undefined,
         confidence: parsed.confidence === "low" || parsed.confidence === "medium" || parsed.confidence === "high" ? parsed.confidence : "medium",
         aiAssistanceStatus: "available"
       };

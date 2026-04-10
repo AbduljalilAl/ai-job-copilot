@@ -103,6 +103,7 @@ export function JobDetailsPage() {
         </div>
         <p>{job.matchReason}</p>
         {job.matchDetails.roleAlignmentSummary ? <p className="muted">Role fit: {job.matchDetails.roleAlignmentSummary}</p> : null}
+        {job.matchDetails.preferenceAlignmentSummary ? <p className="muted">Target description fit: {job.matchDetails.preferenceAlignmentSummary}</p> : null}
         {job.matchDetails.jobRoleFamilies?.length ? <p className="muted">Detected role families: {job.matchDetails.jobRoleFamilies.join(", ")}</p> : null}
         {job.matchDetails.seniority ? <p className="muted">Seniority: {job.matchDetails.seniority}</p> : null}
         {job.matchDetails.aiFitSummary ? <p className="muted">AI fit summary: {job.matchDetails.aiFitSummary}</p> : null}

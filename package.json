@@ -11,7 +11,7 @@
     "dev:web": "npm run build:shared && npm run dev --workspace @ai-job-copilot/web",
     "dev:api": "npm run build:shared && npm run dev --workspace @ai-job-copilot/api",
     "build": "npm run build --workspaces",
-    "typecheck": "npm run typecheck --workspaces",
+    "typecheck": "npm run build:shared && npm run typecheck --workspaces",
     "prisma:generate": "prisma generate --schema apps/api/prisma/schema.prisma",
     "prisma:migrate": "prisma migrate dev --schema apps/api/prisma/schema.prisma",
     "geo:seed": "npm run geo:seed --workspace @ai-job-copilot/api"

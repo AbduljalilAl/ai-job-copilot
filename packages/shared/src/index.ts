@@ -118,6 +118,7 @@ export interface JobMatchDetails {
   aiFitSummary?: string;
   aiStrengths?: string[];
   aiGaps?: string[];
+  preferenceAlignmentSummary?: string;
   aiConfidence?: "low" | "medium" | "high";
   aiAssistanceStatus?: "available" | "error";
   aiAssistanceMessage?: string;

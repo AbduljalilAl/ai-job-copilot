@@ -284,7 +284,7 @@ export class JobOpportunityService {
       filteredJobs.map((job) => this.buildScoredOpportunity(job, resume.content, resolved))
     );
     const eligibleJobs = scoredJobs.filter((job) => !job.shouldAutoExclude && job.score >= 28);
-    const aiRefinedJobs = await this.applyAiFitRefinement(eligibleJobs, resume.content);
+    const aiRefinedJobs = await this.applyAiFitRefinement(eligibleJobs, resume.content, resolved);
     const persistedJobs = await Promise.all(
       aiRefinedJobs.map((job) => this.upsertScoredOpportunity(job))
     );
@@ -382,7 +382,8 @@ export class JobOpportunityService {
       deterministic: ReturnType<MatchingService["analyze"]>;
       shouldAutoExclude: boolean;
     }>,
-    resumeText: string
+    resumeText: string,
+    preferences: JobSearchPreferences
   ) {
     const sortedByBase = [...scoredJobs].sort((left, right) => right.score - left.score);
     const topJobs = new Set(sortedByBase.slice(0, Math.min(3, sortedByBase.length)).map((item) => item.job.sourceUrl));
@@ -393,16 +394,21 @@ export class JobOpportunityService {
           return item;
         }
 
-        const aiFit = await this.aiService.generateJobFitAssessment(resumeText, item.job.description, {
-          baseScore: item.score,
-          matchedRequiredSkills: item.deterministic.matchedRequiredSkills,
-          missingRequiredSkills: item.deterministic.missingRequiredSkills,
-          matchedOptionalSkills: item.deterministic.matchedOptionalSkills,
-          missingOptionalSkills: item.deterministic.missingOptionalSkills,
-          matchedSoftSkills: item.deterministic.matchedSoftSkills,
-          missingSoftSkills: item.deterministic.missingSoftSkills,
-          matchReason: item.matchReason
-        });
+        const aiFit = await this.aiService.generateJobFitAssessment(
+          resumeText,
+          item.job.description,
+          {
+            baseScore: item.score,
+            matchedRequiredSkills: item.deterministic.matchedRequiredSkills,
+            missingRequiredSkills: item.deterministic.missingRequiredSkills,
+            matchedOptionalSkills: item.deterministic.matchedOptionalSkills,
+            missingOptionalSkills: item.deterministic.missingOptionalSkills,
+            matchedSoftSkills: item.deterministic.matchedSoftSkills,
+            missingSoftSkills: item.deterministic.missingSoftSkills,
+            matchReason: item.matchReason
+          },
+          preferences.preferenceText
+        );
 
         return {
           ...item,
@@ -414,6 +420,7 @@ export class JobOpportunityService {
             aiFitSummary: aiFit.fitSummary,
             aiStrengths: aiFit.strengths,
             aiGaps: aiFit.gaps,
+            preferenceAlignmentSummary: aiFit.preferenceAlignmentSummary,
             aiConfidence: aiFit.confidence,
             aiAssistanceStatus: aiFit.aiAssistanceStatus,
             aiAssistanceMessage: aiFit.aiAssistanceMessage
