@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import type { JobSearchRequest } from "@ai-job-copilot/shared";
+import type { JobSearchRequest, RoleType } from "@ai-job-copilot/shared";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../lib/errors.js";
 import { normalizeAnalysisText, uniqueSorted } from "../lib/textNormalization.js";
@@ -27,6 +27,98 @@ function toPrismaRoleType(value?: JobSearchRequest["roleType"]): PrismaRoleType 
   }
 
   return value;
+}
+
+const roleSignals: Array<{ roleType: RoleType; keywords: string[] }> = [
+  { roleType: "internship", keywords: ["internship", "intern", "student"] },
+  { roleType: "summer training", keywords: ["summer training", "training program", "summer internship"] },
+  { roleType: "entry-level", keywords: ["entry level", "entry-level", "junior", "graduate"] }
+];
+
+const focusSignals: Array<{ focusArea: string; keywords: string[] }> = [
+  { focusArea: "frontend", keywords: ["react", "frontend", "html", "css", "ui ux", "figma"] },
+  { focusArea: "backend", keywords: ["node.js", "express", "postgresql", "sql", "rest api", "prisma"] },
+  { focusArea: "data", keywords: ["python", "sql", "data analysis", "machine learning", "excel"] },
+  { focusArea: "qa", keywords: ["testing", "qa", "automation", "rest api"] },
+  { focusArea: "iot", keywords: ["iot", "embedded", "c++", "linux", "hardware"] }
+];
+
+function pickBestRoleType(resumeText: string): RoleType {
+  const normalized = normalizeAnalysisText(resumeText);
+  const ranked = roleSignals
+    .map((signal) => ({
+      roleType: signal.roleType,
+      score: signal.keywords.filter((keyword) => normalized.includes(normalizeAnalysisText(keyword))).length
+    }))
+    .sort((left, right) => right.score - left.score);
+
+  return ranked[0]?.score > 0 ? ranked[0].roleType : "internship";
+}
+
+function pickFocusArea(resumeText: string) {
+  const normalized = normalizeAnalysisText(resumeText);
+  const ranked = focusSignals
+    .map((signal) => ({
+      focusArea: signal.focusArea,
+      score: signal.keywords.filter((keyword) => normalized.includes(normalizeAnalysisText(keyword))).length
+    }))
+    .sort((left, right) => right.score - left.score);
+
+  return ranked[0]?.score > 0 ? ranked[0].focusArea : undefined;
+}
+
+function deriveKeywordsFromResume(resumeText: string, focusArea?: string) {
+  const normalized = normalizeAnalysisText(resumeText);
+  const keywordPool = uniqueSorted(
+    [
+      focusArea,
+      normalized.includes("react") ? "react" : undefined,
+      normalized.includes("typescript") ? "typescript" : undefined,
+      normalized.includes("javascript") ? "javascript" : undefined,
+      normalized.includes("node.js") ? "node.js" : undefined,
+      normalized.includes("express") ? "express" : undefined,
+      normalized.includes("postgresql") ? "postgresql" : undefined,
+      normalized.includes("prisma") ? "prisma" : undefined,
+      normalized.includes("python") ? "python" : undefined,
+      normalized.includes("machine learning") ? "machine learning" : undefined,
+      normalized.includes("sql") ? "sql" : undefined,
+      normalized.includes("testing") ? "testing" : undefined,
+      normalized.includes("ui ux") ? "ui ux" : undefined,
+      normalized.includes("figma") ? "figma" : undefined,
+      normalized.includes("data analysis") ? "data analysis" : undefined
+    ].filter((value): value is string => Boolean(value))
+  );
+
+  return keywordPool.slice(0, 5).join(" ") || "software internship";
+}
+
+function resolveSearchPreferences(request: JobSearchRequest, resumeText: string) {
+  const derivedRoleType = pickBestRoleType(resumeText);
+  const derivedFocusArea = pickFocusArea(resumeText);
+  const derivedKeywords = deriveKeywordsFromResume(resumeText, derivedFocusArea);
+  const normalizedKeywords = request.keywords?.trim();
+  const normalizedFocusArea = request.focusArea?.trim();
+  const resolved: JobSearchPreferences = {
+    keywords: normalizedKeywords || derivedKeywords,
+    location: request.location?.trim() || undefined,
+    remoteOnly: request.remoteOnly ?? false,
+    roleType: request.roleType ?? derivedRoleType,
+    focusArea: normalizedFocusArea || derivedFocusArea,
+    preferenceText: request.preferenceText?.trim() || undefined
+  };
+
+  const hasAnyUserSignal = Boolean(normalizedKeywords || request.roleType || normalizedFocusArea || request.location?.trim() || request.preferenceText?.trim() || request.remoteOnly);
+  const hasCoreUserSignal = Boolean(normalizedKeywords || request.roleType || normalizedFocusArea);
+  const source = !hasAnyUserSignal
+    ? "resume-derived"
+    : hasCoreUserSignal
+      ? "mixed"
+      : "resume-derived";
+
+  return {
+    resolved,
+    source: source as "resume-derived" | "user-specified" | "mixed"
+  };
 }
 
 function buildPreferenceKeywords(preferences: JobSearchPreferences) {
@@ -85,7 +177,7 @@ export class JobOpportunityService {
     private readonly jobProvider = createJobProvider()
   ) {}
 
-  async search(preferences: JobSearchPreferences) {
+  async discover(request: JobSearchRequest) {
     const resume = await this.resumeService.getLatestResume();
 
     if (!resume) {
@@ -96,31 +188,53 @@ export class JobOpportunityService {
       });
     }
 
-    const discoveredJobs = await this.jobProvider.search(preferences);
-    const filteredJobs = discoveredJobs.filter((job) =>
-      matchesKeywords(job, preferences)
-      && matchesLocation(job, preferences)
-      && matchesRemote(job, preferences)
-      && matchesRoleType(job, preferences)
+    const { resolved, source } = resolveSearchPreferences(request, resume.content);
+    const discovered = await this.jobProvider.search(resolved);
+    const filteredJobs = discovered.jobs.filter((job) =>
+      matchesKeywords(job, resolved)
+      && matchesLocation(job, resolved)
+      && matchesRemote(job, resolved)
+      && matchesRoleType(job, resolved)
     );
     const rankedJobs = await Promise.all(
-      filteredJobs.map((job) => this.upsertScoredOpportunity(job, resume.content, preferences))
+      filteredJobs.map((job) => this.upsertScoredOpportunity(job, resume.content, resolved))
     );
 
-    return rankedJobs.sort(
-      (left: { matchScore: number; updatedAt: Date }, right: { matchScore: number; updatedAt: Date }) =>
-        right.matchScore - left.matchScore || right.updatedAt.getTime() - left.updatedAt.getTime()
-    );
+    return {
+      jobs: rankedJobs.sort(
+        (left: { matchScore: number; updatedAt: Date }, right: { matchScore: number; updatedAt: Date }) =>
+          right.matchScore - left.matchScore || right.updatedAt.getTime() - left.updatedAt.getTime()
+      ),
+      meta: {
+        provider: discovered.provider,
+        fallbackUsed: discovered.fallbackUsed,
+        message: discovered.message,
+        boardCount: discovered.boardCount,
+        searchProfile: {
+          keywords: resolved.keywords,
+          roleType: resolved.roleType,
+          focusArea: resolved.focusArea,
+          location: resolved.location,
+          remoteOnly: resolved.remoteOnly,
+          source
+        }
+      }
+    };
   }
 
   async list(limit = 20) {
-    return prismaWithJobs.jobOpportunity.findMany({
+    const jobs = await prismaWithJobs.jobOpportunity.findMany({
       orderBy: [
         { matchScore: "desc" },
         { updatedAt: "desc" }
       ],
       take: limit
     });
+
+    return {
+      jobs,
+      meta: this.jobProvider.getStatus()
+    };
   }
 
   async getById(id: number) {

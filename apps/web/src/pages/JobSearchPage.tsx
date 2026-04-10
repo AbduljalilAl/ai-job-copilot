@@ -8,7 +8,7 @@ const initialSearch: JobSearchRequest = {
   keywords: "",
   location: "",
   remoteOnly: false,
-  roleType: "internship",
+  roleType: undefined,
   focusArea: "",
   preferenceText: ""
 };
@@ -19,6 +19,10 @@ export function JobSearchPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string>();
+  const [discoveryMessage, setDiscoveryMessage] = useState<string>();
+  const [providerLabel, setProviderLabel] = useState<string>();
+  const [searchProfile, setSearchProfile] = useState<string>();
+  const [boardCount, setBoardCount] = useState<number>();
 
   useEffect(() => {
     let isMounted = true;
@@ -30,6 +34,12 @@ export function JobSearchPage() {
         if (isMounted) {
           setJobs(response.jobs);
           setError(undefined);
+          setDiscoveryMessage(response.meta?.message);
+          setProviderLabel(response.meta?.provider === "greenhouse" ? "Greenhouse" : "Mock fallback");
+          setBoardCount(response.meta?.boardCount);
+          setSearchProfile(response.meta?.searchProfile
+            ? `${response.meta.searchProfile.roleType} - ${response.meta.searchProfile.keywords}`
+            : undefined);
         }
       } catch (loadError) {
         if (isMounted) {
@@ -57,10 +67,16 @@ export function JobSearchPage() {
     try {
       const response = await searchJobs({
         ...form,
-        keywords: form.keywords.trim(),
+        keywords: form.keywords?.trim() || undefined,
         location: form.location?.trim() || undefined
       });
       setJobs(response.jobs);
+      setDiscoveryMessage(response.meta?.message);
+      setProviderLabel(response.meta?.provider === "greenhouse" ? "Greenhouse" : "Mock fallback");
+      setBoardCount(response.meta?.boardCount);
+      setSearchProfile(response.meta?.searchProfile
+        ? `${response.meta.searchProfile.roleType} - ${response.meta.searchProfile.keywords}`
+        : undefined);
     } catch (searchError) {
       setError(searchError instanceof Error ? searchError.message : "Could not search jobs.");
     } finally {
@@ -69,7 +85,7 @@ export function JobSearchPage() {
     }
   }
 
-  function updateRoleType(roleType: RoleType) {
+  function updateRoleType(roleType: RoleType | undefined) {
     setForm((current) => ({ ...current, roleType }));
   }
 
@@ -77,7 +93,11 @@ export function JobSearchPage() {
     <section className="stack">
       <article className="panel">
         <h2>Job discovery</h2>
-        <p className="muted">Search Greenhouse jobs when board tokens are configured. If not, the app falls back to local development jobs.</p>
+        <p className="muted">Leave the form mostly blank if you want the app to derive the search from your uploaded resume.</p>
+        {providerLabel ? <p className="muted">Current provider: {providerLabel}</p> : null}
+        {boardCount ? <p className="muted">Automatic sources: {boardCount} Greenhouse boards</p> : null}
+        {discoveryMessage ? <p className="inlineNotice">{discoveryMessage}</p> : null}
+        {searchProfile ? <p className="muted">Active search profile: {searchProfile}</p> : null}
 
         <form className="searchForm" onSubmit={handleSearch}>
           <label className="fieldGroup">
@@ -118,7 +138,8 @@ export function JobSearchPage() {
           </label>
           <label className="fieldGroup">
             <span>Role type</span>
-            <select value={form.roleType} onChange={(event) => updateRoleType(event.target.value as RoleType)} disabled={isSearching}>
+            <select value={form.roleType ?? ""} onChange={(event) => updateRoleType((event.target.value || undefined) as RoleType | undefined)} disabled={isSearching}>
+              <option value="">Auto-detect from resume</option>
               <option value="internship">Internship</option>
               <option value="summer training">Summer training</option>
               <option value="entry-level">Entry-level</option>
@@ -135,8 +156,8 @@ export function JobSearchPage() {
             />
           </label>
           <div className="actions">
-            <button type="submit" disabled={isSearching || form.keywords.trim().length < 2}>
-              {isSearching ? "Searching..." : "Search jobs"}
+            <button type="submit" disabled={isSearching}>
+              {isSearching ? "Searching..." : "Discover jobs from my resume"}
             </button>
           </div>
         </form>
@@ -148,7 +169,7 @@ export function JobSearchPage() {
       {!isLoading && !error && jobs.length === 0 ? (
         <div className="panel emptyState">
           <h3>No jobs yet</h3>
-          <p>Run a search after uploading a resume to generate job matches and stored opportunities.</p>
+          <p>Run a search after uploading a resume to generate ranked opportunities.</p>
         </div>
       ) : null}
 
@@ -158,7 +179,7 @@ export function JobSearchPage() {
             <article key={job.id} className="panel jobCard">
               <div className="cardHeader">
                 <div>
-                  <p className="muted">Rank #{index + 1} • {job.source}</p>
+                  <p className="muted">Rank #{index + 1} - {job.source}</p>
                   <p className="eyebrow">{job.companyName}</p>
                   <h3>{job.title}</h3>
                   <p className="muted">{job.location}</p>

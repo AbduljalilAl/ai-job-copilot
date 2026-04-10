@@ -28,7 +28,7 @@ packages/
   - short cover letter draft
 - Typed frontend state with localStorage restore for the current resume, latest job text, and latest analysis
 - Analysis history for reviewing recent saved results
-- Job discovery with Greenhouse public boards when configured, plus safe mock fallback for local development
+- Automated job discovery across a built-in Greenhouse board registry, plus safe mock fallback for local development
 - OpenAI-powered grounded application assistance for:
   - short cover letter
   - practical application tips
@@ -70,16 +70,17 @@ packages/
 ## How job discovery works
 
 1. The frontend sends job search preferences to `POST /jobs/search`.
-2. A provider layer fetches many jobs from Greenhouse public job boards when `GREENHOUSE_BOARD_TOKENS` is configured. If not configured, the app falls back to mock jobs for local development.
-3. The backend normalizes job data, filters obvious mismatches using the search preferences, and then scores every remaining opportunity against the latest uploaded resume.
-4. Each opportunity is scored using the same `MatchingService`, with additional weighting for:
+2. A provider layer automatically searches a curated set of public Greenhouse job boards. You can optionally append more boards through `GREENHOUSE_BOARD_TOKENS`.
+3. If the user leaves the search form mostly blank, the backend derives a search profile from the latest uploaded resume.
+4. The backend normalizes job data, filters obvious mismatches using the search preferences, and then scores every remaining opportunity against the latest uploaded resume.
+5. Each opportunity is scored using the same `MatchingService`, with additional weighting for:
    - required technical skills
    - optional technical skills
    - soft skills
    - role relevance
-5. Scored opportunities are ranked best-first and persisted in `JobOpportunity`.
-6. The frontend can list stored opportunities from `GET /jobs` and open full details from `GET /jobs/:id`.
-7. Running a full analysis from a job details page reuses `POST /job/analyze`, which saves the opportunity into the existing history and tracking flow.
+6. Scored opportunities are ranked best-first and persisted in `JobOpportunity`.
+7. The frontend can list stored opportunities from `GET /jobs` and open full details from `GET /jobs/:id`.
+8. Running a full analysis from a job details page reuses `POST /job/analyze`, which saves the opportunity into the existing history and tracking flow.
 
 ## Error handling
 
@@ -169,18 +170,18 @@ DATABASE_URL="your_database_url_here"
 OPENAI_API_KEY="your_api_key_here"
 OPENAI_MODEL="gpt-5-mini"
 JOB_DISCOVERY_PROVIDER="auto"
-GREENHOUSE_BOARD_TOKENS="your_greenhouse_board_token_here"
+GREENHOUSE_BOARD_TOKENS=""
 ```
 
 Use your Neon connection string for `DATABASE_URL`. Do not commit `.env` or real secrets. The repository ignores `.env` and `.env.*`, while keeping `.env.example` committed as a safe template.
 
 `JOB_DISCOVERY_PROVIDER` supports:
 
-- `auto`: use Greenhouse when tokens exist, otherwise fall back to mock jobs
-- `greenhouse`: require Greenhouse board tokens
+- `auto`: search the built-in Greenhouse board registry and use mock jobs only if discovery fails
+- `greenhouse`: require Greenhouse discovery and skip the mock-only mode
 - `mock`: force local mock jobs
 
-`GREENHOUSE_BOARD_TOKENS` accepts a comma-separated list of public Greenhouse board tokens.
+`GREENHOUSE_BOARD_TOKENS` accepts a comma-separated list of extra public Greenhouse board tokens. It is optional because the app now includes a built-in registry for automated discovery.
 
 For this monorepo, the primary local env file location is the repo root:
 
@@ -268,7 +269,7 @@ npm run dev:web
 
 ## Testing job discovery and scoring
 
-1. Add one or more Greenhouse board tokens to `.env` if you want real jobs. For local development without tokens, leave `JOB_DISCOVERY_PROVIDER=auto`.
+1. Leave `JOB_DISCOVERY_PROVIDER=auto` for automated discovery. Optionally add extra Greenhouse board tokens to `.env` if you want to search more companies than the built-in registry.
 2. Run the latest Prisma migration and generate the client:
 
 ```bash
@@ -278,7 +279,7 @@ npm run prisma:generate
 
 3. Start the API and web app.
 4. Upload a resume first.
-5. Open the Jobs page and search with keywords, location, remote-only preference, role type, and optional focus hint.
+5. Open the Jobs page and click discovery with the form blank, or add only small hints like location or remote-only preference.
 6. Confirm the results list shows:
    - company name
    - job title
@@ -286,7 +287,7 @@ npm run prisma:generate
    - match score
    - short match reason
    - apply link when available
-   - Greenhouse source when configured, otherwise mock source
+   - Greenhouse source when discovery succeeds, otherwise mock source
 7. Open a job details page and confirm it shows:
    - full description
    - matched required, optional, and soft skills

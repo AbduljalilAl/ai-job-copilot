@@ -5,10 +5,10 @@ import { mapJobOpportunity } from "../lib/jobOpportunityMapper.js";
 import { JobOpportunityService } from "../services/jobOpportunityService.js";
 
 const searchSchema = z.object({
-  keywords: z.string().trim().min(2, "Enter at least one keyword for job search.").max(120, "Keywords must be 120 characters or fewer."),
+  keywords: z.string().trim().max(120, "Keywords must be 120 characters or fewer.").optional().or(z.literal("")),
   location: z.string().trim().max(120, "Location must be 120 characters or fewer.").optional().or(z.literal("")),
   remoteOnly: z.boolean().optional(),
-  roleType: z.enum(["internship", "summer training", "entry-level"]),
+  roleType: z.enum(["internship", "summer training", "entry-level"]).optional(),
   focusArea: z.string().trim().max(120, "Focus area must be 120 characters or fewer.").optional().or(z.literal("")),
   preferenceText: z.string().trim().max(400, "Preference description must be 400 characters or fewer.").optional().or(z.literal(""))
 });
@@ -22,9 +22,10 @@ const jobOpportunityService = new JobOpportunityService();
 export async function searchJobs(request: Request, response: Response, next: NextFunction) {
   try {
     const payload = searchSchema.parse(request.body) satisfies JobSearchRequest;
-    const jobs = await jobOpportunityService.search(payload);
+    const result = await jobOpportunityService.discover(payload);
     const responsePayload: JobSearchResponse = {
-      jobs: jobs.map(mapJobOpportunity)
+      jobs: result.jobs.map(mapJobOpportunity),
+      meta: result.meta
     };
 
     response.status(201).json(responsePayload);
@@ -35,9 +36,10 @@ export async function searchJobs(request: Request, response: Response, next: Nex
 
 export async function getJobs(_request: Request, response: Response, next: NextFunction) {
   try {
-    const jobs = await jobOpportunityService.list();
+    const result = await jobOpportunityService.list();
     const responsePayload: JobSearchResponse = {
-      jobs: jobs.map(mapJobOpportunity)
+      jobs: result.jobs.map(mapJobOpportunity),
+      meta: result.meta
     };
 
     response.json(responsePayload);

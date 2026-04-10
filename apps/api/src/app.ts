@@ -19,6 +19,19 @@ app.use(
 );
 app.use(express.json({ limit: "1mb" }));
 
+app.get("/", (_request, response) => {
+  response.json({
+    name: "AI Job Copilot API",
+    status: "ok",
+    endpoints: {
+      health: "/health",
+      jobs: "/jobs",
+      jobsSearch: "/jobs/search",
+      analysisHistory: "/analysis/history"
+    }
+  });
+});
+
 app.get("/health", (_request, response) => {
   response.json({ status: "ok" });
 });

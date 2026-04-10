@@ -1,5 +1,6 @@
 import type { RoleType } from "@ai-job-copilot/shared";
 import { env } from "../config/env.js";
+import { greenhouseBoardRegistry } from "../data/greenhouseBoardRegistry.js";
 import { normalizeAnalysisText } from "../lib/textNormalization.js";
 
 export interface RawJobOpportunity {
@@ -24,8 +25,22 @@ export interface JobSearchPreferences {
   preferenceText?: string;
 }
 
+export interface JobProviderSearchResult {
+  jobs: RawJobOpportunity[];
+  provider: "greenhouse" | "mock";
+  fallbackUsed: boolean;
+  message?: string;
+  boardCount?: number;
+}
+
 export interface JobProvider {
-  search(preferences: JobSearchPreferences): Promise<RawJobOpportunity[]>;
+  search(preferences: JobSearchPreferences): Promise<JobProviderSearchResult>;
+  getStatus(): {
+    provider: "greenhouse" | "mock";
+    fallbackUsed: boolean;
+    message?: string;
+    boardCount?: number;
+  };
 }
 
 interface GreenhouseBoardResponse {
@@ -151,11 +166,20 @@ function normalizeRoleType(value: RoleType) {
   return normalizeAnalysisText(value).replace(" ", "_");
 }
 
-function parseBoardTokens() {
+function parseExtraBoardTokens() {
   return (env.GREENHOUSE_BOARD_TOKENS ?? "")
     .split(",")
     .map((token) => token.trim())
     .filter((token) => token.length > 0);
+}
+
+function getConfiguredBoardTokens() {
+  return Array.from(
+    new Set([
+      ...greenhouseBoardRegistry.map((entry) => entry.token),
+      ...parseExtraBoardTokens()
+    ])
+  );
 }
 
 function decodeHtml(value: string) {
@@ -280,7 +304,20 @@ function mapGreenhouseJob(boardToken: string, companyName: string, job: Greenhou
 
 export class MockJobProvider implements JobProvider {
   async search(preferences: JobSearchPreferences) {
-    return filterMockJobs(mockJobs, preferences);
+    return {
+      jobs: filterMockJobs(mockJobs, preferences),
+      provider: "mock",
+      fallbackUsed: false,
+      message: "Mock discovery is active. Local development jobs are being used."
+    } satisfies JobProviderSearchResult;
+  }
+
+  getStatus() {
+    return {
+      provider: "mock" as const,
+      fallbackUsed: false,
+      message: "Mock discovery is active. Local development jobs are being used."
+    };
   }
 }
 
@@ -288,7 +325,7 @@ export class GreenhouseJobProvider implements JobProvider {
   constructor(private readonly boardTokens: string[]) {}
 
   async search(_preferences: JobSearchPreferences) {
-    const jobsByBoard = await Promise.all(
+    const jobsByBoard = await Promise.allSettled(
       this.boardTokens.map(async (boardToken) => {
         const boardUrl = `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(boardToken)}`;
         const jobsUrl = `${boardUrl}/jobs?content=true`;
@@ -304,7 +341,30 @@ export class GreenhouseJobProvider implements JobProvider {
       })
     );
 
-    return jobsByBoard.flat();
+    const successfulBoards = jobsByBoard
+      .filter((result): result is PromiseFulfilledResult<RawJobOpportunity[]> => result.status === "fulfilled")
+      .map((result) => result.value);
+    const failedBoards = jobsByBoard.filter((result) => result.status === "rejected").length;
+    const jobs = successfulBoards.flat();
+
+    return {
+      jobs,
+      provider: "greenhouse",
+      fallbackUsed: false,
+      boardCount: this.boardTokens.length,
+      message: failedBoards > 0
+        ? `Loaded jobs from ${successfulBoards.length} Greenhouse boards. ${failedBoards} boards failed and were skipped.`
+        : `Loaded jobs from ${this.boardTokens.length} Greenhouse boards.`
+    } satisfies JobProviderSearchResult;
+  }
+
+  getStatus() {
+    return {
+      provider: "greenhouse" as const,
+      fallbackUsed: false,
+      boardCount: this.boardTokens.length,
+      message: `Automatic discovery is searching ${this.boardTokens.length} Greenhouse boards.`
+    };
   }
 }
 
@@ -316,13 +376,19 @@ class AutoJobProvider implements JobProvider {
 
   async search(preferences: JobSearchPreferences) {
     if (!this.greenhouseProvider) {
-      return this.mockProvider.search(preferences);
+      const fallback = await this.mockProvider.search(preferences);
+
+      return {
+        ...fallback,
+        fallbackUsed: true,
+        message: `Automatic discovery is using mock jobs because no Greenhouse boards were configured.`
+      } satisfies JobProviderSearchResult;
     }
 
     try {
       const greenhouseJobs = await this.greenhouseProvider.search(preferences);
 
-      if (greenhouseJobs.length > 0) {
+      if (greenhouseJobs.jobs.length > 0) {
         return greenhouseJobs;
       }
     } catch (error) {
@@ -332,12 +398,30 @@ class AutoJobProvider implements JobProvider {
       });
     }
 
-    return this.mockProvider.search(preferences);
+    const fallback = await this.mockProvider.search(preferences);
+
+    return {
+      ...fallback,
+      fallbackUsed: true,
+      message: `Greenhouse jobs could not be loaded right now, so local mock jobs are being shown instead.`
+    } satisfies JobProviderSearchResult;
+  }
+
+  getStatus() {
+    if (!this.greenhouseProvider) {
+      return {
+        provider: "mock" as const,
+        fallbackUsed: true,
+        message: "Automatic discovery is using mock jobs because Greenhouse boards are unavailable."
+      };
+    }
+
+    return this.greenhouseProvider.getStatus();
   }
 }
 
 export function createJobProvider(): JobProvider {
-  const boardTokens = parseBoardTokens();
+  const boardTokens = getConfiguredBoardTokens();
   const greenhouseProvider = boardTokens.length > 0 ? new GreenhouseJobProvider(boardTokens) : undefined;
 
   if (env.JOB_DISCOVERY_PROVIDER === "mock") {

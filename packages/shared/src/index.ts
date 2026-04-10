@@ -67,12 +67,27 @@ export interface AnalysisResponse {
 }
 
 export interface JobSearchRequest {
-  keywords: string;
+  keywords?: string;
   location?: string;
   remoteOnly?: boolean;
-  roleType: RoleType;
+  roleType?: RoleType;
   focusArea?: string;
   preferenceText?: string;
+}
+
+export interface JobDiscoveryMeta {
+  provider: "greenhouse" | "mock";
+  fallbackUsed: boolean;
+  message?: string;
+  boardCount?: number;
+  searchProfile?: {
+    keywords: string;
+    roleType: RoleType;
+    focusArea?: string;
+    location?: string;
+    remoteOnly?: boolean;
+    source: "resume-derived" | "user-specified" | "mixed";
+  };
 }
 
 export interface JobMatchDetails {
@@ -109,6 +124,7 @@ export interface JobOpportunityDto {
 
 export interface JobSearchResponse {
   jobs: JobOpportunityDto[];
+  meta?: JobDiscoveryMeta;
 }
 
 export interface JobResponse {
