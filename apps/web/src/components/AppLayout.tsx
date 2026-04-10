@@ -15,7 +15,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </p>
         </div>
         <nav className="nav">
-          <Link className={location.pathname === "/" ? "active" : ""} to="/">Resume</Link>
+          <Link className={location.pathname === "/" || location.pathname === "/resume" ? "active" : ""} to="/resume">Resume</Link>
           <Link className={location.pathname === "/job" ? "active" : ""} to="/job">Job</Link>
           <Link className={location.pathname.startsWith("/jobs") ? "active" : ""} to="/jobs">Jobs</Link>
           <Link className={location.pathname === "/history" ? "active" : ""} to="/history">History</Link>

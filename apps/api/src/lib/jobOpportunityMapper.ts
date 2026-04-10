@@ -61,6 +61,7 @@ function toMatchDetails(value: unknown): JobMatchDetails {
     candidateRoleFamilies: toStringArray(details?.candidateRoleFamilies),
     jobRoleFamilies: toStringArray(details?.jobRoleFamilies),
     seniority: details?.seniority === "entry" || details?.seniority === "mid" || details?.seniority === "senior" ? details.seniority : undefined,
+    inferredCountry: typeof details?.inferredCountry === "string" ? details.inferredCountry : undefined,
     baseScore: typeof details?.baseScore === "number" ? details.baseScore : undefined,
     aiAdjustedScore: typeof details?.aiAdjustedScore === "number" ? details.aiAdjustedScore : undefined,
     aiFitSummary: typeof details?.aiFitSummary === "string" ? details.aiFitSummary : undefined,

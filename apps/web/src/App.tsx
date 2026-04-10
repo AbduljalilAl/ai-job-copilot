@@ -14,6 +14,7 @@ export function App() {
       <AppLayout>
         <Routes>
           <Route path="/" element={<ResumeUploadPage />} />
+          <Route path="/resume" element={<ResumeUploadPage />} />
           <Route path="/job" element={<JobDescriptionPage />} />
           <Route path="/jobs" element={<JobSearchPage />} />
           <Route path="/jobs/:id" element={<JobDetailsPage />} />

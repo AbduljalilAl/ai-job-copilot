@@ -2,6 +2,7 @@ import type { RoleType, WorkMode } from "@ai-job-copilot/shared";
 import { env } from "../config/env.js";
 import { greenhouseBoardRegistry } from "../data/greenhouseBoardRegistry.js";
 import { leverCompanyRegistry } from "../data/leverCompanyRegistry.js";
+import { inferWorkModeFromText } from "../lib/jobDiscoveryUtils.js";
 import { normalizeAnalysisText } from "../lib/textNormalization.js";
 
 export interface RawJobOpportunity {
@@ -254,24 +255,6 @@ function inferRoleType(text: string): RoleType | undefined {
   return undefined;
 }
 
-function inferRemoteType(location: string, description: string) {
-  const normalized = normalizeAnalysisText(`${location} ${description}`);
-
-  if (normalized.includes("remote")) {
-    return "remote";
-  }
-
-  if (normalized.includes("hybrid")) {
-    return "hybrid";
-  }
-
-  if (normalized.includes("onsite") || normalized.includes("on site")) {
-    return "onsite";
-  }
-
-  return undefined;
-}
-
 function filterMockJobs(jobs: RawJobOpportunity[], preferences: JobSearchPreferences) {
   const normalizedKeywords = normalizeAnalysisText([preferences.keywords, preferences.focusArea, preferences.preferenceText].filter(Boolean).join(" "));
   const keywordTokens = normalizedKeywords.split(" ").filter((token) => token.length > 2);
@@ -284,7 +267,8 @@ function filterMockJobs(jobs: RawJobOpportunity[], preferences: JobSearchPrefere
     const matchesLocation = !normalizedLocation
       || normalizeAnalysisText(job.location).includes(normalizedLocation)
       || normalizeAnalysisText(job.remoteType ?? "").includes(normalizedLocation);
-    const matchesRemote = !preferences.remoteOnly || job.remoteType === "remote";
+    const effectiveWorkMode = job.remoteType ?? inferWorkModeFromText(`${job.location} ${job.description}`);
+    const matchesRemote = !preferences.remoteOnly || effectiveWorkMode === "remote";
     const matchesRoleType = !job.roleType || normalizeRoleType(job.roleType) === normalizedRoleType;
 
     return matchesKeywords && matchesLocation && matchesRemote && matchesRoleType;
@@ -331,7 +315,7 @@ function mapGreenhouseJob(boardToken: string, companyName: string, job: Greenhou
     description,
     employmentType: undefined,
     roleType: inferRoleType(combinedText),
-    remoteType: inferRemoteType(location, description)
+    remoteType: inferWorkModeFromText(`${location} ${description}`)
   };
 }
 
@@ -358,7 +342,7 @@ function mapLeverJob(companyToken: string, companyName: string, job: LeverJobPos
     description,
     employmentType: job.categories?.commitment?.trim() || undefined,
     roleType: inferRoleType(`${title} ${description}`),
-    remoteType: inferRemoteType(location, description)
+    remoteType: inferWorkModeFromText(`${location} ${description}`)
   };
 }
 

@@ -76,3 +76,15 @@ model JobOpportunity {
   @@unique([source, sourceUrl])
   @@index([matchScore])
 }
+
+model LocationCountryMapping {
+  id                 Int      @id @default(autoincrement())
+  normalizedLocation String   @unique
+  originalLocation   String
+  country            String
+  source             String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([country])
+}

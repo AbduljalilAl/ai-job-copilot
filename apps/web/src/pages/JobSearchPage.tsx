@@ -2,7 +2,7 @@ import type { JobOpportunityDto, JobSearchRequest, RoleType, WorkMode } from "@a
 import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { getJobs, searchJobs } from "../lib/api";
+import { searchJobs, uploadResume } from "../lib/api";
 import { useAppState } from "../state/AppState";
 
 const initialSearch: JobSearchRequest = {
@@ -67,74 +67,70 @@ function getWorkModeLabel(value?: WorkMode) {
 }
 
 export function JobSearchPage() {
-  const { jobSearchSeed, resume, setJobSearchSeed } = useAppState();
+  const { jobSearchSeed, resume, setJobSearchSeed, setResume, setAnalysis, setJobText } = useAppState();
   const [form, setForm] = useState<JobSearchRequest>(initialSearch);
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [jobs, setJobs] = useState<JobOpportunityDto[]>([]);
   const [visibleCount, setVisibleCount] = useState(5);
   const [loadMoreStep, setLoadMoreStep] = useState<"5" | "10" | "custom">("5");
   const [customStep, setCustomStep] = useState("5");
-  const [isLoading, setIsLoading] = useState(true);
+  const [hasSearched, setHasSearched] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const [isUploadingResume, setIsUploadingResume] = useState(false);
   const [error, setError] = useState<string>();
+  const [resumeError, setResumeError] = useState<string>();
   const [discoveryMessage, setDiscoveryMessage] = useState<string>();
   const [providerLabel, setProviderLabel] = useState<string>();
   const [searchProfile, setSearchProfile] = useState<string>();
   const [boardCount, setBoardCount] = useState<number>();
 
   useEffect(() => {
-    let isMounted = true;
-
-    async function loadJobs() {
-      try {
-        const response = await getJobs();
-
-        if (isMounted) {
-          setJobs(response.jobs);
-          setVisibleCount(5);
-          setError(undefined);
-          setDiscoveryMessage(response.meta?.message);
-          setProviderLabel(getProviderLabel(response.meta?.provider));
-          setBoardCount(response.meta?.boardCount);
-          setSearchProfile(response.meta?.searchProfile
-            ? `${response.meta.searchProfile.roleType} - ${response.meta.searchProfile.keywords}${response.meta.searchProfile.country ? ` - ${response.meta.searchProfile.country}` : ""}${response.meta.searchProfile.workMode ? ` - ${getWorkModeLabel(response.meta.searchProfile.workMode)}` : ""}`
-            : undefined);
-        }
-      } catch (loadError) {
-        if (isMounted) {
-          setError(loadError instanceof Error ? loadError.message : "Could not load saved jobs.");
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    void loadJobs();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!resume || !jobSearchSeed?.trim()) {
+    if (!jobSearchSeed?.trim()) {
       return;
     }
 
-    void runSearch({
-      ...form,
-      preferenceText: jobSearchSeed,
-      keywords: form.keywords?.trim() || undefined,
-      location: form.location?.trim() || undefined,
-      country: form.country?.trim() || undefined
-    }, true);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobSearchSeed, resume?.id]);
+    setForm((current) => ({
+      ...current,
+      preferenceText: current.preferenceText?.trim() ? current.preferenceText : jobSearchSeed
+    }));
+    setJobSearchSeed(undefined);
+  }, [jobSearchSeed, setJobSearchSeed]);
+
+  async function handleResumeUpload(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!resumeFile) {
+      setResumeError("Select a PDF or DOCX resume first.");
+      return;
+    }
+
+    setResumeError(undefined);
+    setIsUploadingResume(true);
+
+    try {
+      const response = await uploadResume(resumeFile);
+      setResume(response.resume);
+      setAnalysis(undefined);
+      setJobText("");
+      setJobs([]);
+      setHasSearched(false);
+      setDiscoveryMessage(undefined);
+      setProviderLabel(undefined);
+      setSearchProfile(undefined);
+      setBoardCount(undefined);
+      setResumeFile(null);
+    } catch (uploadError) {
+      setResumeError(uploadError instanceof Error ? uploadError.message : "Resume upload failed.");
+    } finally {
+      setIsUploadingResume(false);
+    }
+  }
 
   async function runSearch(payload: JobSearchRequest, clearSeed = false) {
     setIsSearching(true);
     setError(undefined);
+    setHasSearched(true);
+    setJobs([]);
 
     try {
       const response = await searchJobs(payload);
@@ -154,7 +150,6 @@ export function JobSearchPage() {
       setError(searchError instanceof Error ? searchError.message : "Could not search jobs.");
     } finally {
       setIsSearching(false);
-      setIsLoading(false);
     }
   }
 
@@ -189,8 +184,40 @@ export function JobSearchPage() {
   return (
     <section className="stack">
       <article className="panel">
+        <h2>Active resume</h2>
+        <p className="muted">Job discovery uses the uploaded resume shown here. Uploading a new resume resets the current ranked results so scoring stays tied to the correct source of truth.</p>
+        {resume ? (
+          <div className="inlineNotice">
+            <strong>Current resume:</strong> {resume.filename}
+          </div>
+        ) : (
+          <div className="emptyState compact">
+            <p>No resume is active yet. Upload one here before searching for jobs.</p>
+          </div>
+        )}
+        <form className="stack" onSubmit={handleResumeUpload}>
+          <label className="uploadBox">
+            <span>{resumeFile ? `Selected: ${resumeFile.name}` : "Choose resume file"}</span>
+            <input
+              type="file"
+              accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              onChange={(event) => setResumeFile(event.target.files?.[0] ?? null)}
+            />
+          </label>
+          {resumeFile ? <p className="muted">Ready to upload: {resumeFile.name}</p> : null}
+          {resumeError ? <p className="error">{resumeError}</p> : null}
+          <div className="actions">
+            <button type="submit" disabled={isUploadingResume || !resumeFile}>
+              {isUploadingResume ? "Uploading..." : (resume ? "Replace resume" : "Upload resume")}
+            </button>
+            <Link className="buttonLink ghostButton" to="/resume">Open full resume page</Link>
+          </div>
+        </form>
+      </article>
+
+      <article className="panel">
         <h2>Job discovery</h2>
-        <p className="muted">After uploading your resume and describing your target opportunity, the app searches structured job sources, scores every discovered job against your resume, and ranks the strongest matches first.</p>
+        <p className="muted">The jobs below are not preloaded. The app only searches after you click the search button, using the active resume shown above as the resume source for matching and scoring.</p>
         {providerLabel ? <p className="muted">Current provider: {providerLabel}</p> : null}
         {boardCount ? <p className="muted">Automatic sources: {boardCount} configured job sources</p> : null}
         {discoveryMessage ? <p className="inlineNotice">{discoveryMessage}</p> : null}
@@ -277,17 +304,23 @@ export function JobSearchPage() {
         </form>
       </article>
 
-      {isLoading ? <p className="muted">Loading saved job matches...</p> : null}
       {error ? <p className="error">{error}</p> : null}
 
-      {!isLoading && !error && jobs.length === 0 ? (
+      {!hasSearched && !error ? (
         <div className="panel emptyState">
-          <h3>No jobs yet</h3>
-          <p>Upload a resume, add a short target description, then run job discovery to generate ranked opportunities.</p>
+          <h3>Search when ready</h3>
+          <p>Choose your filters, keep or replace the active resume, then click <strong>Find ranked jobs</strong>. No saved jobs are shown before a fresh search.</p>
         </div>
       ) : null}
 
-      {!isLoading && jobs.length > 0 ? (
+      {hasSearched && !error && jobs.length === 0 ? (
+        <div className="panel emptyState">
+          <h3>No matching jobs found</h3>
+          <p>Try widening the country, work mode, or keywords. The current engine also excludes clearly unrelated role families like sales, so narrow but wrong-role results should no longer appear.</p>
+        </div>
+      ) : null}
+
+      {jobs.length > 0 ? (
         <>
           <div className="panel loadMorePanel">
             <div className="cardHeader">

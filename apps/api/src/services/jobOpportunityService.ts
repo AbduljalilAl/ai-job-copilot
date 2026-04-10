@@ -2,14 +2,16 @@ import type { Prisma } from "@prisma/client";
 import type { JobSearchRequest, RoleType, WorkMode } from "@ai-job-copilot/shared";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../lib/errors.js";
-import { getDiscoveryLocationSignal, getSaudiPriorityScore } from "../lib/jobDiscoveryUtils.js";
+import { getCountryPriority, getDiscoveryLocationSignal, getSaudiPriorityScore, inferCountryFromText, inferWorkModeFromText, matchesCountrySelection } from "../lib/jobDiscoveryUtils.js";
 import { normalizeAnalysisText, uniqueSorted } from "../lib/textNormalization.js";
 import { MatchingService } from "./matchingService.js";
 import { AIService } from "./aiService.js";
 import { createJobProvider, type JobSearchPreferences, type RawJobOpportunity } from "./jobProviderService.js";
+import { LocationCountryMappingService } from "./locationCountryMappingService.js";
 import { ResumeService } from "./resumeService.js";
 
 type PrismaRoleType = "internship" | "summer_training" | "entry_level";
+type EnrichedJobOpportunity = RawJobOpportunity & { inferredCountry?: string };
 
 const prismaWithJobs = prisma as typeof prisma & {
   jobOpportunity: {
@@ -164,15 +166,8 @@ function matchesLocation(job: RawJobOpportunity, preferences: JobSearchPreferenc
   return haystack.includes(normalizedLocation);
 }
 
-function matchesCountry(job: RawJobOpportunity, preferences: JobSearchPreferences) {
-  const normalizedCountry = normalizeAnalysisText(preferences.country ?? "");
-
-  if (!normalizedCountry) {
-    return true;
-  }
-
-  const haystack = normalizeAnalysisText(`${job.location} ${job.description}`);
-  return haystack.includes(normalizedCountry);
+function matchesCountry(job: EnrichedJobOpportunity, preferences: JobSearchPreferences) {
+  return matchesCountrySelection(preferences.country, `${job.location} ${job.description}`, job.inferredCountry);
 }
 
 function getLocationPriority(job: Pick<RawJobOpportunity, "location" | "remoteType">, preferredLocation?: string) {
@@ -191,16 +186,17 @@ function getLocationPriority(job: Pick<RawJobOpportunity, "location" | "remoteTy
 }
 
 function matchesRemote(job: RawJobOpportunity, preferences: JobSearchPreferences) {
+  const effectiveWorkMode = job.remoteType ?? inferWorkModeFromText(`${job.location} ${job.description}`);
+
   if (preferences.workMode) {
-    return job.remoteType === preferences.workMode;
+    return effectiveWorkMode === preferences.workMode;
   }
 
   if (!preferences.remoteOnly) {
     return true;
   }
 
-  const haystack = normalizeAnalysisText(`${job.location} ${job.remoteType ?? ""} ${job.description}`);
-  return haystack.includes("remote");
+  return effectiveWorkMode === "remote";
 }
 
 function normalizeWorkMode(value?: string | null): WorkMode | undefined {
@@ -253,7 +249,8 @@ export class JobOpportunityService {
     private readonly resumeService = new ResumeService(),
     private readonly matchingService = new MatchingService(),
     private readonly aiService = new AIService(),
-    private readonly jobProvider = createJobProvider()
+    private readonly jobProvider = createJobProvider(),
+    private readonly locationCountryMappingService = new LocationCountryMappingService()
   ) {}
 
   async discover(request: JobSearchRequest) {
@@ -269,7 +266,8 @@ export class JobOpportunityService {
 
     const { resolved, source } = resolveSearchPreferences(request, resume.content);
     const discovered = await this.jobProvider.search(resolved);
-    const filteredJobs = discovered.jobs.filter((job) =>
+    const jobsWithCountry = await this.enrichCountryInformation(discovered.jobs);
+    const filteredJobs = jobsWithCountry.filter((job) =>
       matchesKeywords(job, resolved)
       && matchesLocation(job, resolved)
       && matchesCountry(job, resolved)
@@ -285,7 +283,7 @@ export class JobOpportunityService {
       aiRefinedJobs.map((job) => this.upsertScoredOpportunity(job))
     );
     const sortedJobs = persistedJobs.sort((left, right) =>
-      this.compareRankedJobs(left, right, resolved.location)
+      this.compareRankedJobs(left, right, resolved.location, resolved.country)
     );
 
     return {
@@ -342,7 +340,7 @@ export class JobOpportunityService {
     return job;
   }
 
-  private async buildScoredOpportunity(job: RawJobOpportunity, resumeText: string, preferences: JobSearchPreferences) {
+  private async buildScoredOpportunity(job: EnrichedJobOpportunity, resumeText: string, preferences: JobSearchPreferences) {
     const match = this.matchingService.analyze(resumeText, job.description, {
       keywords: buildPreferenceKeywords(preferences),
       roleType: preferences.roleType,
@@ -358,6 +356,7 @@ export class JobOpportunityService {
       matchDetails: {
         ...match.matchDetails,
         roleRelevance: match.roleRelevance,
+        inferredCountry: job.inferredCountry,
         baseScore: match.score,
         aiAdjustedScore: match.score
       },
@@ -368,7 +367,7 @@ export class JobOpportunityService {
 
   private async applyAiFitRefinement(
     scoredJobs: Array<{
-      job: RawJobOpportunity;
+      job: EnrichedJobOpportunity;
       score: number;
       matchReason: string;
       matchedSkills: string[];
@@ -419,7 +418,7 @@ export class JobOpportunityService {
   }
 
   private async upsertScoredOpportunity(scoredJob: {
-    job: RawJobOpportunity;
+    job: EnrichedJobOpportunity;
     score: number;
     matchReason: string;
     matchedSkills: string[];
@@ -474,9 +473,10 @@ export class JobOpportunityService {
   }
 
   private compareRankedJobs(
-    left: { matchScore: number; updatedAt: Date; location?: string | null; remoteType?: string | null },
-    right: { matchScore: number; updatedAt: Date; location?: string | null; remoteType?: string | null },
-    preferredLocation?: string
+    left: { matchScore: number; updatedAt: Date; location?: string | null; remoteType?: string | null; matchDetails?: unknown },
+    right: { matchScore: number; updatedAt: Date; location?: string | null; remoteType?: string | null; matchDetails?: unknown },
+    preferredLocation?: string,
+    preferredCountry?: string
   ) {
     const leftLocationPriority = getLocationPriority({
       location: left.location ?? "",
@@ -486,9 +486,74 @@ export class JobOpportunityService {
       location: right.location ?? "",
       remoteType: normalizeWorkMode(right.remoteType)
     }, preferredLocation);
+    const leftCountryPriority = getCountryPriority(preferredCountry, left.location ?? "", normalizeWorkMode(left.remoteType), this.extractInferredCountry(left.matchDetails));
+    const rightCountryPriority = getCountryPriority(preferredCountry, right.location ?? "", normalizeWorkMode(right.remoteType), this.extractInferredCountry(right.matchDetails));
 
-    return rightLocationPriority - leftLocationPriority
+    return rightCountryPriority - leftCountryPriority
+      || rightLocationPriority - leftLocationPriority
       || right.matchScore - left.matchScore
       || right.updatedAt.getTime() - left.updatedAt.getTime();
+  }
+
+  private async enrichCountryInformation(jobs: RawJobOpportunity[]): Promise<EnrichedJobOpportunity[]> {
+    const deterministicByLocation = new Map<string, string>();
+
+    for (const job of jobs) {
+      const location = job.location.trim();
+      const deterministicCountry = inferCountryFromText(location);
+
+      if (location && deterministicCountry) {
+        deterministicByLocation.set(location, deterministicCountry);
+      }
+    }
+
+    await this.locationCountryMappingService.saveMappings(
+      Array.from(deterministicByLocation.entries()).map(([location, country]) => ({
+        location,
+        country,
+        source: "deterministic" as const
+      }))
+    );
+
+    const unresolvedLocations = Array.from(
+      new Set(
+        jobs
+          .map((job) => job.location.trim())
+          .filter((location) => location.length > 0 && !deterministicByLocation.has(location))
+      )
+    );
+    const databaseMappings = await this.locationCountryMappingService.findCountries(unresolvedLocations);
+    const aiTargetLocations = unresolvedLocations.filter((location) => !databaseMappings[location]);
+    const aiInferred = aiTargetLocations.length > 0
+      ? await this.aiService.inferCountriesForLocations(aiTargetLocations)
+      : { inferredCountries: {}, aiAssistanceStatus: "available" as const };
+
+    await this.locationCountryMappingService.saveMappings(
+      Object.entries(aiInferred.inferredCountries).map(([location, country]) => ({
+        location,
+        country,
+        source: "openai" as const
+      }))
+    );
+
+    return jobs.map((job) => {
+      const location = job.location.trim();
+      const persistedCountry = location ? (deterministicByLocation.get(location) || databaseMappings[location] || aiInferred.inferredCountries[location]) : undefined;
+      const descriptiveCountry = inferCountryFromText(`${job.location} ${job.description}`);
+
+      return {
+        ...job,
+        inferredCountry: persistedCountry || descriptiveCountry
+      };
+    });
+  }
+
+  private extractInferredCountry(matchDetails: unknown) {
+    if (!matchDetails || typeof matchDetails !== "object") {
+      return undefined;
+    }
+
+    const inferredCountry = (matchDetails as { inferredCountry?: unknown }).inferredCountry;
+    return typeof inferredCountry === "string" ? inferredCountry : undefined;
   }
 }

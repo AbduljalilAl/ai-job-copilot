@@ -112,6 +112,7 @@ export interface JobMatchDetails {
   candidateRoleFamilies?: string[];
   jobRoleFamilies?: string[];
   seniority?: "entry" | "mid" | "senior";
+  inferredCountry?: string;
   baseScore?: number;
   aiAdjustedScore?: number;
   aiFitSummary?: string;
